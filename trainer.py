@@ -9,7 +9,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from tqdm import tqdm
 
 
 COLLAPSE_THRESHOLD = 0.01   # repr_std below this triggers a warning
@@ -57,6 +56,7 @@ def pretrain_tjepa(
 
         acc = {k: 0.0 for k in
                ["pred_loss", "var_loss", "kl_loss", "temporal_loss", "kl_temporal", "repr_std"]}
+        total_loss_sum = 0.0
         n_batches = 0
 
         for x_batch, a_batch, x_next_batch in train_loader:
@@ -73,15 +73,14 @@ def pretrain_tjepa(
 
             for k in acc:
                 acc[k] += stats[k]
+            total_loss_sum += loss.item()
             n_batches += 1
 
         scheduler.step()
         n = max(n_batches, 1)
 
         epoch_stats = {k: acc[k] / n for k in acc}
-        epoch_stats["total_loss"] = sum(
-            acc[k] / n for k in ["pred_loss", "var_loss", "kl_loss", "temporal_loss", "kl_temporal"]
-        )
+        epoch_stats["total_loss"] = total_loss_sum / n
         train_stats.append(epoch_stats)
         train_losses.append(epoch_stats["pred_loss"])
 

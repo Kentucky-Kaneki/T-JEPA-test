@@ -489,7 +489,8 @@ class TJEPA(nn.Module):
 
         # ── Variance regularization ───────────────────────────────
         h_flat      = h_ctx.reshape(-1, h_ctx.shape[-1])
-        std_per_dim = h_flat.std(dim=0)
+        # Use population std to avoid NaNs on tiny batches / last batches.
+        std_per_dim = h_flat.std(dim=0, unbiased=False)
         repr_std    = std_per_dim.detach().mean().item()
         var_loss    = F.relu(1.0 - std_per_dim).mean()
 
@@ -559,11 +560,18 @@ class TJEPA(nn.Module):
         return total_loss, stats
 
     # ── Encode (inference) ────────────────────────────────────────
+    def encode_context(self, x_batch: list[torch.Tensor]) -> torch.Tensor:
+        """
+        Returns (B, d, h) context-encoder representations with gradients enabled.
+        Useful for downstream RL fine-tuning where the encoder may later be unfrozen.
+        """
+        z = self.embed.embed_features(x_batch, list(range(self.d)), add_reg=False)
+        return self.context_encoder(z)
+
     @torch.no_grad()
     def encode(self, x_batch: list[torch.Tensor]) -> torch.Tensor:
         """
         Returns (B, d, h) representations from the context encoder.
         Full (unmasked) input. Used for downstream tasks.
         """
-        z = self.embed.embed_features(x_batch, list(range(self.d)), add_reg=False)
-        return self.context_encoder(z)
+        return self.encode_context(x_batch)
