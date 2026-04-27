@@ -5,7 +5,6 @@ sys.path.insert(0, ".")
 print("--- data.py ---")
 from data import (
     build_nasim_loaders,
-    build_nasim_rl_loaders,
     collect_rollout_transitions,
     get_env_dims,
     make_nasim_env,
@@ -108,26 +107,11 @@ else:
 
 print()
 print("--- rl.py ---")
-from rl import LatentActorCritic, train_joint_tjepa_a2c, train_offline_a2c
-
-rl_train_loader, rl_val_loader, _, reward_stats = build_nasim_rl_loaders(
-    rollout["states"],
-    rollout["actions"],
-    rollout["rewards"],
-    rollout["next_states"],
-    rollout["dones"],
-    num_hosts,
-    host_features,
-    episode_ids=rollout["episode_ids"],
-    batch_size=64,
-    seed=42,
-    prep=prep,
-)
-print(
-    "  reward norm stats: "
-    f"mean={reward_stats['reward_mean']:.4f}, "
-    f"std={reward_stats['reward_std']:.4f}, "
-    f"clip={reward_stats['reward_clip']:.1f}"
+from rl import (
+    LatentActorCritic,
+    collect_on_policy_latent_rollout,
+    evaluate_control_policy,
+    train_on_policy_a2c,
 )
 
 agent = LatentActorCritic(
@@ -137,50 +121,58 @@ agent = LatentActorCritic(
     actor_hidden_dim=64,
     freeze_encoder=True,
 )
-rl_batch = next(iter(rl_train_loader))
-x_rl, a_rl, r_rl, x_rl_next, d_rl = rl_batch
-logits, values = agent(x_rl)
-print(f"  actor logits shape: {logits.shape}  expected ({len(a_rl)}, {num_actions})")
-print(f"  value shape:        {values.shape}  expected ({len(a_rl)},)")
-assert logits.shape == (len(a_rl), num_actions), f"wrong logits shape: {logits.shape}"
-assert values.shape == (len(a_rl),), f"wrong value shape: {values.shape}"
+logits, values = agent(x_t)
+print(f"  actor logits shape: {logits.shape}  expected ({len(a_t)}, {num_actions})")
+print(f"  value shape:        {values.shape}  expected ({len(a_t)},)")
+assert logits.shape == (len(a_t), num_actions), f"wrong logits shape: {logits.shape}"
+assert values.shape == (len(a_t),), f"wrong value shape: {values.shape}"
 
-a2c_history = train_offline_a2c(
+on_policy_env = make_nasim_env("tiny", fully_obs=False, seed=123)
+on_policy_rollout = collect_on_policy_latent_rollout(
     agent,
-    rl_train_loader,
-    rl_val_loader,
-    num_epochs=1,
+    on_policy_env,
+    prep,
+    num_episodes=1,
+    max_steps_per_episode=5,
     device="cpu",
-    verbose=False,
-)
-print(f"  offline A2C loss after 1 epoch: {a2c_history[-1]['loss']:.5f}")
-
-print()
-print("--- joint rl + jepa ---")
-joint_history = train_joint_tjepa_a2c(
-    agent,
-    base_rollout=rollout,
-    preprocessor=prep,
-    scenario="tiny",
-    fully_obs=False,
-    num_hosts=num_hosts,
-    host_features=host_features,
-    batch_size=64,
-    num_epochs=1,
-    fresh_transitions_per_epoch=100,
-    lambda_rl=0.1,
-    encoder_lr=1e-5,
-    jepa_lr=1e-4,
-    policy_lr=3e-4,
-    device="cpu",
-    seed=42,
-    max_steps_per_episode=20,
-    verbose=False,
+    seed=123,
 )
 print(
-    f"  joint loss after 1 epoch: {joint_history[-1]['total_loss']:.5f} "
-    f"(stage={joint_history[-1]['stage']})"
+    "  on-policy rollout: "
+    f"{len(on_policy_rollout['actions'])} transitions, "
+    f"mean return={on_policy_rollout['stats']['mean_return']:.3f}"
 )
+
+random_env = make_nasim_env("tiny", fully_obs=False, seed=456)
+random_stats = evaluate_control_policy(
+    None,
+    random_env,
+    prep,
+    num_episodes=1,
+    max_steps_per_episode=5,
+    random_policy=True,
+    device="cpu",
+    seed=456,
+)
+print(f"  random baseline return: {random_stats['mean_return']:.3f}")
+
+a2c_history = train_on_policy_a2c(
+    agent,
+    prep,
+    scenario="tiny",
+    fully_obs=False,
+    num_epochs=1,
+    episodes_per_epoch=1,
+    max_steps_per_episode=5,
+    lr=3e-4,
+    device="cpu",
+    seed=42,
+    random_baseline=random_stats,
+    fail_fast_epochs=0,
+    eval_episodes=1,
+    verbose=False,
+)
+print(f"  on-policy A2C loss after 1 epoch: {a2c_history[-1]['loss']:.5f}")
 
 print()
 print("ALL CHECKS PASSED")

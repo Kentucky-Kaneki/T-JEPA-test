@@ -8,13 +8,11 @@ self-supervised NASim loop:
   3. Split train/val by episode and build loaders
   4. Pre-train T-JEPA on masked current-state plus action -> next-state latent
 
-Step 4 optionally attaches a frozen-latent offline actor-critic head:
-  5. Freeze the JEPA encoder and train policy/value heads on z_t
-  6. Evaluate the learned policy online in NASim
-
-Step 5 optionally unfreezes the encoder in phases and jointly trains JEPA + RL:
-  7. Mix stored and fresh policy rollouts
-  8. Jointly optimize the representation and policy without letting RL dominate
+Step 4 attaches a frozen-latent on-policy actor-critic head:
+  5. Freeze the JEPA encoder completely
+  6. Collect fresh current-policy NASim rollouts each RL epoch
+  7. Update policy/value heads only from that rollout
+  8. Compare behavior against a random-policy baseline
 """
 
 import argparse
@@ -24,13 +22,12 @@ import torch
 
 from data import (
     build_nasim_loaders,
-    build_nasim_rl_loaders,
     collect_rollout_transitions,
     get_env_dims,
     make_nasim_env,
 )
 from model import TJEPA
-from rl import LatentActorCritic, evaluate_policy, train_joint_tjepa_a2c, train_offline_a2c
+from rl import LatentActorCritic, evaluate_control_policy, train_on_policy_a2c
 from trainer import pretrain_tjepa
 
 
@@ -100,7 +97,17 @@ def _print_rollout_summary(rollout: dict[str, np.ndarray], num_actions: int) -> 
 
 def main(args):
     device = args.device
-    total_steps = 5 + int(args.epochs_a2c > 0) + int(args.epochs_joint > 0)
+    if args.epochs_joint > 0:
+        raise ValueError(
+            "Joint JEPA + RL training is disabled for this proof-of-concept. "
+            "Keep --epochs-joint 0 so the JEPA encoder remains frozen."
+        )
+    if args.epochs_a2c > 0 and args.max_steps_per_episode is None:
+        args.max_steps_per_episode = 100
+    if args.epochs_a2c > 0 and not (0.0 <= args.milestone_reward_scale <= 0.25):
+        raise ValueError("--milestone-reward-scale must stay in [0.0, 0.25].")
+
+    total_steps = 5 + int(args.epochs_a2c > 0)
 
     print(f"\n{'=' * 62}")
     print(f"  T-JEPA  |  NASim Self-Supervised Loop  |  Scenario: {args.scenario}")
@@ -196,155 +203,174 @@ def main(args):
 
     _print_pretrain_summary(train_stats, args.scenario)
 
-    agent = None
-
-    if args.epochs_a2c > 0 or args.epochs_joint > 0:
-        agent = LatentActorCritic(
-            encoder=tjepa,
-            num_actions=num_actions,
-            hidden_dim=args.hidden_dim,
-            actor_hidden_dim=args.a2c_hidden_dim,
-            freeze_encoder=True,
-        )
-
     if args.epochs_a2c > 0:
-        print(f"\n[ 6/{total_steps} ] Training offline A2C on frozen JEPA latents ...")
-        rl_train_loader, rl_val_loader, _, reward_stats = build_nasim_rl_loaders(
-            rollout["states"],
-            rollout["actions"],
-            rollout["rewards"],
-            rollout["next_states"],
-            rollout["dones"],
-            num_hosts=num_hosts,
-            host_features=host_features,
-            episode_ids=rollout["episode_ids"],
-            batch_size=args.batch_size,
-            seed=args.seed,
-            split_by_episode=not args.allow_transition_leakage,
-            reward_clip=args.reward_clip,
-            prep=prep,
-        )
+        print(f"\n[ 6/{total_steps} ] Frozen-encoder on-policy A2C proof-of-concept ...")
+        print("        RL source:          fresh current-policy NASim rollouts only")
+        print("        Encoder updates:    disabled")
+        print("        Reward base:        raw NASim task reward")
         print(
-            f"        Reward normalization: mean={reward_stats['reward_mean']:.4f}  "
-            f"std={reward_stats['reward_std']:.4f}  clip={reward_stats['reward_clip']:.1f}"
+            f"        Rollout shape:      {args.rl_episodes_per_epoch} episodes/epoch, "
+            f"max {args.max_steps_per_episode} steps/episode"
         )
-        if reward_stats["reward_std"] <= 1e-6:
-            print("        Warning: normalized rewards are effectively constant after train split.")
-        a2c_history = train_offline_a2c(
-            agent,
-            rl_train_loader,
-            rl_val_loader,
-            num_epochs=args.epochs_a2c,
-            gamma=args.gamma,
-            lr=args.lr_a2c,
-            value_coef=args.value_coef,
-            entropy_coef=args.entropy_coef,
-            device=device,
-            verbose=True,
+        print(f"        RL seeds:           {args.rl_num_seeds}")
+        if args.milestone_reward_scale > 0.0:
+            print(
+                "        Milestone rewards:  enabled, small, one-time, environment-consistent "
+                f"(+{args.milestone_reward_scale:.3f} per progress event)"
+            )
+        else:
+            print("        Milestone rewards:  disabled")
+        enough_budget = (
+            args.epochs_a2c >= args.min_substantive_rl_epochs
+            and args.rl_num_seeds >= 2
+            and args.eval_episodes >= 10
+            and args.random_baseline_episodes >= 10
         )
-        final_a2c = a2c_history[-1]
-        print(
-            f"        Final A2C loss:      {final_a2c['loss']:.4f}  "
-            f"(val={final_a2c['val_loss']:.4f})"
+        if not enough_budget:
+            print(
+                "        Budget label:       diagnostic only; too short for a substantive "
+                "learning claim"
+            )
+
+        seed_results = []
+        for seed_idx in range(args.rl_num_seeds):
+            rl_seed = args.seed + 100_000 * seed_idx
+            torch.manual_seed(rl_seed)
+            np.random.seed(rl_seed % (2**32 - 1))
+            agent = LatentActorCritic(
+                encoder=tjepa,
+                num_actions=num_actions,
+                hidden_dim=args.hidden_dim,
+                actor_hidden_dim=args.a2c_hidden_dim,
+                freeze_encoder=True,
+            )
+
+            random_env = make_nasim_env(args.scenario, fully_obs=args.fully_obs, seed=rl_seed + 10_000)
+            random_stats = evaluate_control_policy(
+                None,
+                random_env,
+                prep,
+                num_episodes=args.random_baseline_episodes,
+                max_steps_per_episode=args.max_steps_per_episode,
+                random_policy=True,
+                milestone_reward_scale=args.milestone_reward_scale,
+                device=device,
+                seed=rl_seed + 20_000,
+            )
+            print(f"\n        Seed {seed_idx + 1}/{args.rl_num_seeds} random baseline:")
+            _print_control_report(random_stats, prefix="          ")
+
+            a2c_history = train_on_policy_a2c(
+                agent,
+                prep,
+                scenario=args.scenario,
+                fully_obs=args.fully_obs,
+                num_epochs=args.epochs_a2c,
+                episodes_per_epoch=args.rl_episodes_per_epoch,
+                max_steps_per_episode=args.max_steps_per_episode,
+                gamma=args.gamma,
+                lr=args.lr_a2c,
+                value_coef=args.value_coef,
+                entropy_coef=args.entropy_coef,
+                milestone_reward_scale=args.milestone_reward_scale,
+                device=device,
+                seed=rl_seed,
+                random_baseline=random_stats,
+                fail_fast_epochs=args.fail_fast_epochs,
+                min_control_margin=args.min_control_margin,
+                eval_episodes=args.eval_episodes,
+                verbose=True,
+            )
+
+            eval_env = make_nasim_env(args.scenario, fully_obs=args.fully_obs, seed=rl_seed + 30_000)
+            eval_stats = evaluate_control_policy(
+                agent,
+                eval_env,
+                prep,
+                num_episodes=args.eval_episodes,
+                max_steps_per_episode=args.max_steps_per_episode,
+                deterministic=True,
+                random_policy=False,
+                milestone_reward_scale=args.milestone_reward_scale,
+                device=device,
+                seed=rl_seed + 40_000,
+            )
+            print(f"\n        Seed {seed_idx + 1}/{args.rl_num_seeds} learned-policy evaluation:")
+            _print_control_report(eval_stats, prefix="          ")
+
+            seed_results.append(
+                {
+                    "seed": rl_seed,
+                    "random": random_stats,
+                    "learned": eval_stats,
+                    "failed_fast": bool(
+                        a2c_history and a2c_history[-1].get("failed_poc", 0.0) > 0.0
+                    ),
+                }
+            )
+
+        random_agg = _aggregate_control_reports([result["random"] for result in seed_results])
+        learned_agg = _aggregate_control_reports([result["learned"] for result in seed_results])
+        print("\n        Aggregate random baseline:")
+        _print_control_report(random_agg, prefix="          ")
+        print("\n        Aggregate learned policy:")
+        _print_control_report(learned_agg, prefix="          ")
+
+        success_gain = (
+            learned_agg["goal_success_rate"]
+            > random_agg["goal_success_rate"] + args.min_success_rate_margin
         )
-        print(
-            f"        Final policy/value:  {final_a2c['policy_loss']:.4f} / "
-            f"{final_a2c['value_loss']:.4f}"
+        return_gain = learned_agg["mean_return"] > random_agg["mean_return"] + args.min_control_margin
+        progress_gain = (
+            learned_agg["progress_events_per_episode"]
+            > random_agg["progress_events_per_episode"] + args.min_progress_margin
+        )
+        diverse_enough = learned_agg["action_diversity"] >= args.min_action_diversity
+        no_seed_failed_fast = not any(result["failed_fast"] for result in seed_results)
+        substantive_success = (
+            enough_budget
+            and success_gain
+            and return_gain
+            and progress_gain
+            and diverse_enough
+            and no_seed_failed_fast
         )
 
-        eval_env = make_nasim_env(args.scenario, fully_obs=args.fully_obs, seed=args.seed + 10_000)
-        eval_stats = evaluate_policy(
-            agent,
-            eval_env,
-            prep,
-            num_episodes=args.eval_episodes,
-            deterministic=True,
-            device=device,
-            seed=args.seed + 20_000,
-            max_steps_per_episode=args.max_steps_per_episode,
-        )
-        print(
-            f"        Eval return:         {eval_stats['mean_return']:.4f} +/- "
-            f"{eval_stats['std_return']:.4f}"
-        )
-        print(f"        Eval ep length:      {eval_stats['mean_length']:.2f}")
-
-    if args.epochs_joint > 0:
-        step_idx = 6 if args.epochs_a2c == 0 else 7
-        print(f"\n[ {step_idx}/{total_steps} ] Joint JEPA + RL training with phased unfreezing ...")
-        tjepa.ema_decay = args.joint_ema_decay
-        encoder_lr = args.lr_joint * args.encoder_lr_scale
-        print(
-            f"        lambda_rl={args.lambda_rl:.3f}  "
-            f"encoder_lr={encoder_lr:.6f}  "
-            f"jepa_lr={args.lr_joint:.6f}  "
-            f"policy_lr={args.lr_a2c:.6f}"
-        )
-        print(
-            f"        fresh transitions/epoch={args.fresh_transitions_per_epoch:,}  "
-            f"EMA={args.joint_ema_decay:.3f}"
-        )
-        if args.epochs_a2c == 0:
-            print("        Warning: joint training is starting without the frozen-encoder RL warmup stage.")
-
-        joint_history = train_joint_tjepa_a2c(
-            agent,
-            base_rollout=rollout,
-            preprocessor=prep,
-            scenario=args.scenario,
-            fully_obs=args.fully_obs,
-            num_hosts=num_hosts,
-            host_features=host_features,
-            batch_size=args.batch_size,
-            num_epochs=args.epochs_joint,
-            fresh_transitions_per_epoch=args.fresh_transitions_per_epoch,
-            gamma=args.gamma,
-            lambda_rl=args.lambda_rl,
-            encoder_lr=encoder_lr,
-            jepa_lr=args.lr_joint,
-            policy_lr=args.lr_a2c,
-            value_coef=args.value_coef,
-            entropy_coef=args.entropy_coef,
-            reward_clip=args.reward_clip,
-            device=device,
-            seed=args.seed,
-            max_steps_per_episode=args.max_steps_per_episode,
-            max_recent_policy_rollouts=args.max_recent_policy_rollouts,
-            verbose=True,
-        )
-        final_joint = joint_history[-1]
-        print(
-            f"        Final joint loss:    {final_joint['total_loss']:.4f}  "
-            f"(val={final_joint['val_total_loss']:.4f})"
-        )
-        print(
-            f"        Final JEPA/RL:      {final_joint['jepa_loss']:.4f} / "
-            f"{final_joint['rl_loss']:.4f}"
-        )
-        print(
-            f"        Final stage/std:    {final_joint['stage']} / "
-            f"{final_joint['repr_std']:.4f}"
-        )
-
-        eval_env = make_nasim_env(args.scenario, fully_obs=args.fully_obs, seed=args.seed + 30_000)
-        joint_eval = evaluate_policy(
-            agent,
-            eval_env,
-            prep,
-            num_episodes=args.eval_episodes,
-            deterministic=True,
-            device=device,
-            seed=args.seed + 40_000,
-            max_steps_per_episode=args.max_steps_per_episode,
-        )
-        print(
-            f"        Joint eval return:   {joint_eval['mean_return']:.4f} +/- "
-            f"{joint_eval['std_return']:.4f}"
-        )
-        print(f"        Joint eval length:   {joint_eval['mean_length']:.2f}")
+        print("\n        Substantive RL verdict:")
+        print(f"          Adequate budget:   {'Y' if enough_budget else 'N'}")
+        print(f"          Success-rate gain: {'Y' if success_gain else 'N'}")
+        print(f"          Return gain:       {'Y' if return_gain else 'N'}")
+        print(f"          Progress gain:     {'Y' if progress_gain else 'N'}")
+        print(f"          Diverse policy:    {'Y' if diverse_enough else 'N'}")
+        print(f"          No fail-fast seed: {'Y' if no_seed_failed_fast else 'N'}")
+        print(f"          Result:            {'SUCCESS' if substantive_success else 'FAILED'}")
+        if not substantive_success:
+            print(
+                "          Interpretation:    no evidence of substantive control learning "
+                "under a genuine reward signal"
+            )
 
     print(f"\n{'=' * 62}\n")
     return train_stats
+
+
+def _print_control_report(stats: dict[str, float], prefix: str = "") -> None:
+    print(f"{prefix}goal success rate:  {stats['goal_success_rate']:.3f}")
+    print(f"{prefix}avg episode return: {stats['mean_return']:.3f} +/- {stats['std_return']:.3f}")
+    print(f"{prefix}avg episode length: {stats['mean_length']:.2f}")
+    print(f"{prefix}terminal successes: {int(stats['terminal_successes'])}/{int(stats['episodes'])}")
+    print(f"{prefix}action diversity:   {stats['action_diversity']:.3f} ({int(stats['unique_actions'])} actions)")
+    print(f"{prefix}progress/episode:   {stats['progress_events_per_episode']:.3f}")
+
+
+def _aggregate_control_reports(reports: list[dict[str, float]]) -> dict[str, float]:
+    if not reports:
+        raise ValueError("_aggregate_control_reports requires at least one report.")
+    keys = reports[0].keys()
+    return {
+        key: float(np.mean([report[key] for report in reports]))
+        for key in keys
+    }
 
 
 if __name__ == "__main__":
@@ -415,16 +441,69 @@ if __name__ == "__main__":
     parser.add_argument("--value-coef", type=float, default=0.5)
     parser.add_argument("--entropy-coef", type=float, default=0.01)
     parser.add_argument("--a2c-hidden-dim", type=int, default=128)
-    parser.add_argument("--reward-clip", type=float, default=5.0)
-    parser.add_argument("--eval-episodes", type=int, default=5)
+    parser.add_argument("--eval-episodes", type=int, default=20)
+    parser.add_argument(
+        "--rl-episodes-per-epoch",
+        type=int,
+        default=8,
+        help="Fresh current-policy NASim episodes collected for each on-policy RL epoch",
+    )
+    parser.add_argument(
+        "--rl-num-seeds",
+        type=int,
+        default=3,
+        help="Number of independently initialized policy-head seeds to train and evaluate",
+    )
+    parser.add_argument(
+        "--random-baseline-episodes",
+        type=int,
+        default=20,
+        help="Random-policy evaluation episodes under the same tiny scenario",
+    )
+    parser.add_argument(
+        "--milestone-reward-scale",
+        type=float,
+        default=0.0,
+        help="Optional small one-time bonus for true attack progress events; 0 disables it",
+    )
+    parser.add_argument(
+        "--fail-fast-epochs",
+        type=int,
+        default=25,
+        help="Evaluate and stop early after this many RL epochs if no behavioral gain is visible; 0 disables early stop",
+    )
+    parser.add_argument(
+        "--min-substantive-rl-epochs",
+        type=int,
+        default=50,
+        help="Minimum RL epochs required before the run can be labeled a substantive success",
+    )
+    parser.add_argument(
+        "--min-control-margin",
+        type=float,
+        default=0.0,
+        help="Minimum average-return margin required over random for a behavioral gain",
+    )
+    parser.add_argument(
+        "--min-success-rate-margin",
+        type=float,
+        default=0.0,
+        help="Minimum goal-success-rate margin required over random",
+    )
+    parser.add_argument(
+        "--min-progress-margin",
+        type=float,
+        default=0.0,
+        help="Minimum progress-events-per-episode margin required over random",
+    )
+    parser.add_argument(
+        "--min-action-diversity",
+        type=float,
+        default=0.20,
+        help="Minimum fraction of distinct actions used during learned-policy evaluation",
+    )
 
     parser.add_argument("--epochs-joint", type=int, default=0)
-    parser.add_argument("--lr-joint", type=float, default=1e-4)
-    parser.add_argument("--lambda-rl", type=float, default=0.1)
-    parser.add_argument("--encoder-lr-scale", type=float, default=0.1)
-    parser.add_argument("--joint-ema-decay", type=float, default=0.999)
-    parser.add_argument("--fresh-transitions-per-epoch", type=int, default=2_000)
-    parser.add_argument("--max-recent-policy-rollouts", type=int, default=2)
 
     parser.add_argument(
         "--device",

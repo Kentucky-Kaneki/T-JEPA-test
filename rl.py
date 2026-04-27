@@ -1,9 +1,8 @@
 """
-Offline actor-critic utilities for attaching an RL head to T-JEPA latents.
+On-policy actor-critic utilities for attaching an RL head to T-JEPA latents.
 
-Step 4 keeps the JEPA encoder frozen initially and trains policy/value heads on
-top of the current-state latent z_t. The resulting interface leaves room for
-later policy variants and encoder unfreezing without rewriting the data path.
+This proof-of-concept keeps the JEPA encoder frozen. RL updates are made only
+from fresh NASim interaction collected by the current policy.
 """
 
 from __future__ import annotations
@@ -15,7 +14,7 @@ import torch.optim as optim
 from torch.distributions import Categorical
 from torch.utils.data import DataLoader
 
-from data import build_nasim_rl_loaders, make_nasim_env
+from data import make_nasim_env
 
 
 class LatentActorCritic(nn.Module):
@@ -78,6 +77,15 @@ class LatentActorCritic(nn.Module):
             h = self.encoder.encode_context(x_batch)
         return h.mean(dim=1)
 
+    def forward_latent(self, state_latent: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Runs only the trainable policy/value heads on already-frozen latents.
+        """
+        hidden = self.trunk(state_latent)
+        logits = self.policy_head(hidden)
+        values = self.value_head(hidden).squeeze(-1)
+        return logits, values
+
     def forward(self, x_batch: list[torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Returns:
@@ -85,10 +93,7 @@ class LatentActorCritic(nn.Module):
             values : (B,)
         """
         state_latent = self.encode_state(x_batch)
-        hidden = self.trunk(state_latent)
-        logits = self.policy_head(hidden)
-        values = self.value_head(hidden).squeeze(-1)
-        return logits, values
+        return self.forward_latent(state_latent)
 
     def act(
         self,
@@ -108,9 +113,438 @@ class LatentActorCritic(nn.Module):
         entropy = dist.entropy()
         return actions, log_probs, values, entropy
 
+    def act_from_latent(
+        self,
+        state_latent: torch.Tensor,
+        deterministic: bool = False,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Samples or selects an action from a precomputed latent.
+        """
+        logits, values = self.forward_latent(state_latent)
+        dist = Categorical(logits=logits)
+        if deterministic:
+            actions = logits.argmax(dim=-1)
+        else:
+            actions = dist.sample()
+        log_probs = dist.log_prob(actions)
+        entropy = dist.entropy()
+        return actions, log_probs, values, entropy
+
+    def policy_value_parameters(self):
+        return (
+            list(self.trunk.parameters())
+            + list(self.policy_head.parameters())
+            + list(self.value_head.parameters())
+        )
+
 
 def _move_token_batch(x_batch: list[torch.Tensor], device: str) -> list[torch.Tensor]:
     return [x.to(device) for x in x_batch]
+
+
+def _obs_to_token_batch(obs: np.ndarray, preprocessor, device: str) -> list[torch.Tensor]:
+    token_arrays = preprocessor.transform_observation(obs)
+    return [
+        torch.tensor(token, dtype=torch.float32, device=device).unsqueeze(0)
+        for token in token_arrays
+    ]
+
+
+def _action_space_n(env) -> int:
+    return int(env.action_space.n)
+
+
+def _count_progress_events(
+    info: dict,
+    episode_tracker: dict,
+) -> dict[str, int]:
+    """
+    Tracks small, explicit proof-of-concept progress events from NASim info.
+
+    These are not task success. They are only visibility signals for whether
+    the agent is doing anything more structured than wandering.
+    """
+    progress = {
+        "new_hosts": 0,
+        "new_services": 0,
+        "exploit_successes": 0,
+        "privilege_gains": 0,
+    }
+
+    newly_discovered = info.get("newly_discovered", {}) or {}
+    for host_key, discovered in newly_discovered.items():
+        if bool(discovered) and host_key not in episode_tracker["hosts"]:
+            episode_tracker["hosts"].add(host_key)
+            progress["new_hosts"] += 1
+
+    services = info.get("services", {}) or {}
+    for service_name, value in services.items():
+        try:
+            seen = float(value) > 0.0
+        except (TypeError, ValueError):
+            seen = bool(value)
+        if seen and service_name not in episode_tracker["services"]:
+            episode_tracker["services"].add(service_name)
+            progress["new_services"] += 1
+
+    access = info.get("access", None)
+    if access is not None:
+        try:
+            access_value = float(access)
+        except (TypeError, ValueError):
+            access_value = 0.0
+        if access_value > episode_tracker["best_access"]:
+            episode_tracker["best_access"] = access_value
+            progress["privilege_gains"] += 1
+
+    state_changed = (
+        progress["new_hosts"] > 0
+        or progress["new_services"] > 0
+        or progress["privilege_gains"] > 0
+    )
+    if bool(info.get("success", False)) and state_changed:
+        progress["exploit_successes"] += 1
+
+    return progress
+
+
+def _empty_rollout_stats(num_actions: int) -> dict:
+    return {
+        "episode_returns": [],
+        "episode_shaped_returns": [],
+        "episode_lengths": [],
+        "terminal_successes": 0,
+        "action_counts": np.zeros(num_actions, dtype=np.int64),
+        "new_hosts": 0,
+        "new_services": 0,
+        "exploit_successes": 0,
+        "privilege_gains": 0,
+    }
+
+
+def _finalize_control_stats(stats: dict, num_actions: int) -> dict[str, float]:
+    returns = np.asarray(stats["episode_returns"], dtype=np.float32)
+    shaped_returns = np.asarray(stats["episode_shaped_returns"], dtype=np.float32)
+    lengths = np.asarray(stats["episode_lengths"], dtype=np.float32)
+    episodes = max(len(returns), 1)
+    action_counts = stats["action_counts"]
+    progress_total = (
+        int(stats["new_hosts"])
+        + int(stats["new_services"])
+        + int(stats["exploit_successes"])
+        + int(stats["privilege_gains"])
+    )
+
+    return {
+        "episodes": float(len(returns)),
+        "goal_success_rate": float(stats["terminal_successes"] / episodes),
+        "terminal_successes": float(stats["terminal_successes"]),
+        "mean_return": float(returns.mean()) if len(returns) else 0.0,
+        "std_return": float(returns.std()) if len(returns) else 0.0,
+        "mean_shaped_return": float(shaped_returns.mean()) if len(shaped_returns) else 0.0,
+        "mean_length": float(lengths.mean()) if len(lengths) else 0.0,
+        "action_diversity": float(np.count_nonzero(action_counts) / max(num_actions, 1)),
+        "unique_actions": float(np.count_nonzero(action_counts)),
+        "progress_events": float(progress_total),
+        "progress_events_per_episode": float(progress_total / episodes),
+        "new_hosts": float(stats["new_hosts"]),
+        "new_services": float(stats["new_services"]),
+        "exploit_successes": float(stats["exploit_successes"]),
+        "privilege_gains": float(stats["privilege_gains"]),
+    }
+
+
+@torch.no_grad()
+def collect_on_policy_latent_rollout(
+    agent: LatentActorCritic,
+    env,
+    preprocessor,
+    num_episodes: int = 4,
+    max_steps_per_episode: int = 30,
+    milestone_reward_scale: float = 0.0,
+    deterministic: bool = False,
+    device: str = "cpu",
+    seed: int = 42,
+) -> dict:
+    """
+    Collects fresh on-policy tuples:
+        latent_state, action, reward, done, next_latent_state
+
+    The JEPA encoder is used under no_grad only. Rewards stored for learning use
+    the NASim task reward as the base signal, with optional small one-time
+    milestone bonuses for real attack progress. Environment returns remain raw.
+    """
+    agent = agent.to(device)
+    agent.eval()
+    agent.set_encoder_trainable(False)
+
+    num_actions = _action_space_n(env)
+    stats = _empty_rollout_stats(num_actions)
+    latents, next_latents, actions, rewards, dones = [], [], [], [], []
+
+    for episode_idx in range(num_episodes):
+        obs, _ = env.reset(seed=seed + episode_idx)
+        episode_tracker = {"hosts": set(), "services": set(), "best_access": 0.0}
+        ep_return = 0.0
+        ep_shaped_return = 0.0
+        ep_len = 0
+        terminated = False
+        truncated = False
+
+        while not (terminated or truncated) and ep_len < max_steps_per_episode:
+            x_batch = _obs_to_token_batch(obs, preprocessor, device)
+            latent = agent.encode_state(x_batch).detach()
+            action, _, _, _ = agent.act_from_latent(latent, deterministic=deterministic)
+            action_int = int(action.item())
+
+            next_obs, env_reward, terminated, truncated, info = env.step(action_int)
+            x_next_batch = _obs_to_token_batch(next_obs, preprocessor, device)
+            next_latent = agent.encode_state(x_next_batch).detach()
+
+            progress = _count_progress_events(info, episode_tracker)
+            progress_events = sum(progress.values())
+            learning_reward = float(env_reward) + milestone_reward_scale * float(progress_events)
+
+            latents.append(latent.squeeze(0).cpu())
+            next_latents.append(next_latent.squeeze(0).cpu())
+            actions.append(action_int)
+            rewards.append(learning_reward)
+            dones.append(bool(terminated or truncated or (ep_len + 1) >= max_steps_per_episode))
+
+            ep_return += float(env_reward)
+            ep_shaped_return += learning_reward
+            ep_len += 1
+            stats["action_counts"][action_int] += 1
+            for key, value in progress.items():
+                stats[key] += int(value)
+
+            obs = next_obs
+
+        stats["episode_returns"].append(ep_return)
+        stats["episode_shaped_returns"].append(ep_shaped_return)
+        stats["episode_lengths"].append(ep_len)
+        if terminated:
+            stats["terminal_successes"] += 1
+
+    if not latents:
+        raise RuntimeError("On-policy rollout collected no transitions.")
+
+    return {
+        "latents": torch.stack(latents).to(device),
+        "actions": torch.tensor(actions, dtype=torch.long, device=device),
+        "rewards": torch.tensor(rewards, dtype=torch.float32, device=device),
+        "next_latents": torch.stack(next_latents).to(device),
+        "dones": torch.tensor(dones, dtype=torch.float32, device=device),
+        "stats": _finalize_control_stats(stats, num_actions),
+    }
+
+
+def _discounted_returns(rewards: torch.Tensor, dones: torch.Tensor, gamma: float) -> torch.Tensor:
+    returns = torch.zeros_like(rewards)
+    running = torch.tensor(0.0, dtype=rewards.dtype, device=rewards.device)
+    for idx in range(rewards.numel() - 1, -1, -1):
+        running = rewards[idx] + gamma * running * (1.0 - dones[idx])
+        returns[idx] = running
+    return returns
+
+
+def train_on_policy_a2c(
+    agent: LatentActorCritic,
+    preprocessor,
+    scenario: str = "tiny",
+    fully_obs: bool = False,
+    num_epochs: int = 10,
+    episodes_per_epoch: int = 4,
+    max_steps_per_episode: int = 30,
+    gamma: float = 0.99,
+    lr: float = 3e-4,
+    weight_decay: float = 1e-5,
+    value_coef: float = 0.5,
+    entropy_coef: float = 0.01,
+    grad_clip: float = 1.0,
+    milestone_reward_scale: float = 0.0,
+    device: str = "cpu",
+    seed: int = 42,
+    random_baseline: dict[str, float] | None = None,
+    fail_fast_epochs: int = 5,
+    min_control_margin: float = 0.0,
+    eval_episodes: int = 5,
+    verbose: bool = True,
+) -> list[dict]:
+    """
+    Strictly on-policy A2C with a frozen JEPA encoder.
+
+    Each epoch creates fresh NASim interaction using the current policy and
+    updates policy/value heads only from that rollout.
+    """
+    agent = agent.to(device)
+    agent.set_encoder_trainable(False)
+    optimizer = optim.AdamW(agent.policy_value_parameters(), lr=lr, weight_decay=weight_decay)
+    history: list[dict] = []
+
+    for epoch in range(1, num_epochs + 1):
+        rollout_env = make_nasim_env(scenario, fully_obs=fully_obs, seed=seed + 1_000 * epoch)
+        rollout = collect_on_policy_latent_rollout(
+            agent,
+            rollout_env,
+            preprocessor,
+            num_episodes=episodes_per_epoch,
+            max_steps_per_episode=max_steps_per_episode,
+            milestone_reward_scale=milestone_reward_scale,
+            deterministic=False,
+            device=device,
+            seed=seed + 10_000 * epoch,
+        )
+
+        agent.train()
+        latents = rollout["latents"].detach()
+        actions = rollout["actions"]
+        rewards = rollout["rewards"]
+        dones = rollout["dones"]
+
+        logits, values = agent.forward_latent(latents)
+        dist = Categorical(logits=logits)
+        log_probs = dist.log_prob(actions)
+        entropy = dist.entropy().mean()
+        returns = _discounted_returns(rewards, dones, gamma)
+        advantages = returns - values
+
+        policy_loss = -(log_probs * advantages.detach()).mean()
+        value_loss = 0.5 * advantages.pow(2).mean()
+        loss = policy_loss + value_coef * value_loss - entropy_coef * entropy
+
+        optimizer.zero_grad()
+        loss.backward()
+        nn.utils.clip_grad_norm_(agent.policy_value_parameters(), grad_clip)
+        optimizer.step()
+
+        epoch_stats = {
+            "epoch": float(epoch),
+            "loss": float(loss.item()),
+            "policy_loss": float(policy_loss.item()),
+            "value_loss": float(value_loss.item()),
+            "entropy": float(entropy.item()),
+            "advantage_abs": float(advantages.detach().abs().mean().item()),
+            **rollout["stats"],
+        }
+        history.append(epoch_stats)
+
+        if verbose:
+            print(
+                f"  On-policy epoch {epoch:>3}/{num_epochs}  "
+                f"return={epoch_stats['mean_return']:.3f}  "
+                f"success={epoch_stats['terminal_successes']:.0f}/{epoch_stats['episodes']:.0f}  "
+                f"len={epoch_stats['mean_length']:.1f}  "
+                f"progress/ep={epoch_stats['progress_events_per_episode']:.2f}  "
+                f"actions={epoch_stats['action_diversity']:.2f}"
+            )
+
+        if (
+            random_baseline is not None
+            and fail_fast_epochs > 0
+            and epoch == min(fail_fast_epochs, num_epochs)
+        ):
+            eval_env = make_nasim_env(scenario, fully_obs=fully_obs, seed=seed + 50_000)
+            eval_stats = evaluate_control_policy(
+                agent,
+                eval_env,
+                preprocessor,
+                num_episodes=eval_episodes,
+                max_steps_per_episode=max_steps_per_episode,
+                deterministic=True,
+                random_policy=False,
+                milestone_reward_scale=milestone_reward_scale,
+                device=device,
+                seed=seed + 60_000,
+            )
+            no_success = eval_stats["terminal_successes"] <= 0
+            no_return_gain = (
+                eval_stats["mean_return"]
+                <= random_baseline["mean_return"] + min_control_margin
+            )
+            no_progress_gain = (
+                eval_stats["progress_events_per_episode"]
+                <= random_baseline["progress_events_per_episode"]
+            )
+            if no_success and no_return_gain and no_progress_gain:
+                epoch_stats["failed_poc"] = 1.0
+                epoch_stats["fail_reason"] = (
+                    "fail-fast: no goal success, no return gain over random, "
+                    "and no progress gain over random"
+                )
+                if verbose:
+                    print(f"  {epoch_stats['fail_reason']}")
+                break
+
+    return history
+
+
+@torch.no_grad()
+def evaluate_control_policy(
+    agent: LatentActorCritic | None,
+    env,
+    preprocessor,
+    num_episodes: int = 10,
+    max_steps_per_episode: int = 30,
+    deterministic: bool = True,
+    random_policy: bool = False,
+    milestone_reward_scale: float = 0.0,
+    device: str = "cpu",
+    seed: int = 42,
+) -> dict[str, float]:
+    """
+    Evaluates real NASim behavior. Losses are intentionally not reported here.
+    """
+    if agent is not None:
+        agent = agent.to(device)
+        agent.eval()
+        agent.set_encoder_trainable(False)
+
+    num_actions = _action_space_n(env)
+    rng = np.random.default_rng(seed)
+    stats = _empty_rollout_stats(num_actions)
+
+    for episode_idx in range(num_episodes):
+        obs, _ = env.reset(seed=seed + episode_idx)
+        episode_tracker = {"hosts": set(), "services": set(), "best_access": 0.0}
+        ep_return = 0.0
+        ep_shaped_return = 0.0
+        ep_len = 0
+        terminated = False
+        truncated = False
+
+        while not (terminated or truncated) and ep_len < max_steps_per_episode:
+            if random_policy:
+                action_int = int(rng.integers(num_actions))
+            else:
+                if agent is None:
+                    raise ValueError("agent is required unless random_policy=True")
+                x_batch = _obs_to_token_batch(obs, preprocessor, device)
+                latent = agent.encode_state(x_batch)
+                action, _, _, _ = agent.act_from_latent(latent, deterministic=deterministic)
+                action_int = int(action.item())
+
+            next_obs, env_reward, terminated, truncated, info = env.step(action_int)
+            progress = _count_progress_events(info, episode_tracker)
+            learning_reward = float(env_reward) + milestone_reward_scale * float(sum(progress.values()))
+
+            ep_return += float(env_reward)
+            ep_shaped_return += learning_reward
+            ep_len += 1
+            stats["action_counts"][action_int] += 1
+            for key, value in progress.items():
+                stats[key] += int(value)
+
+            obs = next_obs
+
+        stats["episode_returns"].append(ep_return)
+        stats["episode_shaped_returns"].append(ep_shaped_return)
+        stats["episode_lengths"].append(ep_len)
+        if terminated:
+            stats["terminal_successes"] += 1
+
+    return _finalize_control_stats(stats, num_actions)
 
 
 def train_offline_a2c(
@@ -134,6 +568,10 @@ def train_offline_a2c(
     on-policy A2C implementation. The objective still matches the actor-critic
     structure: policy gradient from advantages plus a value baseline.
     """
+    raise RuntimeError(
+        "Offline A2C is disabled for this proof-of-concept. "
+        "Use train_on_policy_a2c with fresh current-policy rollouts."
+    )
     agent = agent.to(device)
     optimizer = optim.AdamW(
         [param for param in agent.parameters() if param.requires_grad],
@@ -422,6 +860,8 @@ def _set_trainable_flags(module: nn.Module | None, trainable: bool) -> None:
         return
     for param in module.parameters():
         param.requires_grad_(trainable)
+        if not trainable:
+            param.grad = None
 
 
 def configure_joint_unfreezing(agent: LatentActorCritic, stage: str) -> None:
@@ -604,6 +1044,10 @@ def train_joint_tjepa_a2c(
     """
     Jointly trains JEPA and RL with phased unfreezing and mixed replay.
     """
+    raise RuntimeError(
+        "Joint JEPA + RL training is disabled for this proof-of-concept. "
+        "The JEPA encoder must remain frozen during RL."
+    )
     agent = agent.to(device)
     tjepa = agent.encoder
     optimizer = build_joint_optimizer(
