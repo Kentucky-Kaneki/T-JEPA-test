@@ -6,14 +6,14 @@ deriving raw, flat vector, host-table, and event views from the same returned
 Blue observation without invoking another environment step.
 """
 
-from typing import Any, Union
-import numpy as np
+from typing import Any
 
 from CybORG import CybORG
-from CybORG.Agents.Wrappers import ChallengeWrapper
 from CybORG.Agents import B_lineAgent, RedMeanderAgent
-from CybORG.Simulator.Scenarios import FileReaderScenarioGenerator
+from CybORG.Agents.Wrappers import ChallengeWrapper
 from CybORG.Simulator.Actions.ConcreteActions.ExploitActions.SSHBruteForce import SSHBruteForce
+from CybORG.Simulator.Scenarios import FileReaderScenarioGenerator
+
 
 # Upstream CybORG dd586a3 SSHBruteForce decoy bug fix
 def _patch_create_exploit_decoy_event(self, local_port, target_host=None, **kwargs):
@@ -24,16 +24,14 @@ def _patch_create_exploit_decoy_event(self, local_port, target_host=None, **kwar
 if not hasattr(SSHBruteForce, "_create_exploit_decoy_event"):
     SSHBruteForce._create_exploit_decoy_event = _patch_create_exploit_decoy_event
 
-from cyber_jepa.env.action_mapper import ActionMapper
 from cyber_jepa.data.schema import (
-    BlueObservation,
-    ActionSpec,
-    OracleLabels,
     SCENARIO1B_HOST_SLOTS,
-    SCENARIO1B_SUBNET_SLOTS,
     UNKNOWN_TOKEN,
-    NONE_TOKEN,
+    ActionSpec,
+    BlueObservation,
+    OracleLabels,
 )
+from cyber_jepa.env.action_mapper import ActionMapper
 
 
 class ObservationMultiplexer:
@@ -103,7 +101,7 @@ class ObservationMultiplexer:
 
     def step(
         self,
-        action: Union[int, ActionSpec],
+        action: int | ActionSpec,
         trajectory_id: str = "traj0",
         split_group_id: str = "grp0",
     ) -> tuple[BlueObservation, float, ActionSpec, bool, dict[str, Any], OracleLabels]:

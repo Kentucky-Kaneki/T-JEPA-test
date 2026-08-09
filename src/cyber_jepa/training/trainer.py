@@ -9,9 +9,8 @@ and atomic checkpointing.
 import json
 from pathlib import Path
 from typing import Any
-import numpy as np
+
 import torch
-import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from cyber_jepa.models.jepa import CyberJEPA
@@ -73,7 +72,7 @@ class Trainer:
 
             with torch.amp.autocast("cuda", enabled=(self.device.type == "cuda")):
                 loss, pred_z, target_z = self.model(hist, actions, target)
-                loss_scaled = loss / self.accum_steps
+                loss_scaled: torch.Tensor = loss / self.accum_steps
 
             self.scaler.scale(loss_scaled).backward()
             total_loss += loss.item()
@@ -163,3 +162,6 @@ class Trainer:
         tmp_path = path.with_suffix(".tmp")
         torch.save(ckpt, tmp_path)
         tmp_path.replace(path)
+
+
+JEPATrainer = Trainer

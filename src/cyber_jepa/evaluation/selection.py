@@ -9,7 +9,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-
 PREFERENCE_ORDER = ["host", "feature", "hierarchical", "flat"]
 
 

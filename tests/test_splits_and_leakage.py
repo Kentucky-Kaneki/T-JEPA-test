@@ -9,13 +9,11 @@ Verifies:
 
 from pathlib import Path
 from typing import Any
-import numpy as np
-import pytest
+
 from torch.utils.data import DataLoader
 
 from cyber_jepa.data.collector import collect_shard, get_scenario1b_path
-from cyber_jepa.data.dataset import generate_episode_splits, CyberJEPADataset
-
+from cyber_jepa.data.dataset import CyberJEPADataset, generate_group_splits
 
 ORACLE_LEAKAGE_KEYS = {
     "host_compromise_status",
@@ -27,10 +25,10 @@ ORACLE_LEAKAGE_KEYS = {
 }
 
 
-def test_episode_splits_disjointness():
-    """Verify train, val, and test splits are strictly disjoint."""
-    episode_ids = [f"ep_{i:03d}" for i in range(100)]
-    splits = generate_episode_splits(episode_ids, train_ratio=0.70, val_ratio=0.15, test_ratio=0.15)
+def test_group_splits_disjointness():
+    """Verify train, val, and test group splits are strictly disjoint."""
+    group_ids = [f"group_1001_{i:03d}" for i in range(100)]
+    splits = generate_group_splits(group_ids, train_ratio=0.70, val_ratio=0.15, test_ratio=0.15)
 
     train_set = set(splits["train"])
     val_set = set(splits["val"])
@@ -58,12 +56,12 @@ def test_windowing_boundary_rules(tmp_path: Path):
         output_dir=shard_dir,
     )
 
-    ep_ids = sorted(list(set(t.episode_id for t in transitions)))
+    grp_ids = sorted(list(set(t.split_group_id for t in transitions)))
 
     # Dataset at horizon k=4
     ds = CyberJEPADataset(
         shard_dirs=[shard_dir],
-        episode_split=ep_ids,
+        split_group_set=grp_ids,
         horizon=4,
         history_len=4,
         fit_normalizers=True,
@@ -98,10 +96,10 @@ def test_strict_oracle_leakage_audit(tmp_path: Path):
         output_dir=shard_dir,
     )
 
-    ep_ids = sorted(list(set(t.episode_id for t in transitions)))
+    grp_ids = sorted(list(set(t.split_group_id for t in transitions)))
     ds = CyberJEPADataset(
         shard_dirs=[shard_dir],
-        episode_split=ep_ids,
+        split_group_set=grp_ids,
         horizon=2,
         history_len=4,
         fit_normalizers=True,

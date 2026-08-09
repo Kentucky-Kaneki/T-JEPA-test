@@ -2,13 +2,11 @@
 Unit tests for predictive metrics, frozen linear probes, latent geometry diagnostics, and selection decision tree.
 """
 
-from pathlib import Path
 import numpy as np
 import torch
-import pytest
 
-from cyber_jepa.evaluation.metrics import compute_predictive_metrics, compute_action_degradation
 from cyber_jepa.evaluation.diagnostics import compute_latent_geometry_diagnostics
+from cyber_jepa.evaluation.metrics import compute_predictive_metrics
 from cyber_jepa.evaluation.selection import apply_preregistered_selection_rule
 
 
@@ -113,7 +111,7 @@ def test_linear_probe_evaluator():
 
 def test_world_model_interface_dataclasses():
     """Verify TargetSpec, LatentContext, LatentPrediction dataclasses."""
-    from cyber_jepa.models.interface import TargetSpec, LatentContext, LatentPrediction
+    from cyber_jepa.models.interface import LatentContext, LatentPrediction, TargetSpec
 
     target = TargetSpec(granularity="host", target_id="Defender", query_indices=[0])
     ctx = LatentContext(context_tokens=torch.randn(2, 4, 64), history_len=4, metadata={})

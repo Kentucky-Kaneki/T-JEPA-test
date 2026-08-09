@@ -7,12 +7,18 @@ and critical operational-server risk. Enforces strict transition_id sidecar join
 """
 
 from typing import Any
+
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
 from sklearn.linear_model import LogisticRegression, Ridge
-from sklearn.metrics import f1_score, balanced_accuracy_score, roc_auc_score, confusion_matrix, r2_score
+from sklearn.metrics import (
+    balanced_accuracy_score,
+    confusion_matrix,
+    f1_score,
+    roc_auc_score,
+)
 
 
 def compute_variance_normalized_r2(y_true: np.ndarray, y_pred: np.ndarray) -> float:

@@ -10,12 +10,13 @@ import inspect
 import random
 from pathlib import Path
 from typing import Any
+
 import numpy as np
 
-from cyber_jepa.env.observation_multiplexer import ObservationMultiplexer
-from cyber_jepa.env.action_mapper import ActionMapper
-from cyber_jepa.data.schema import Transition, OracleLabels, ActionSpec
+from cyber_jepa.data.schema import OracleLabels, Transition
 from cyber_jepa.data.storage import DatasetStorageManager
+from cyber_jepa.env.action_mapper import ActionMapper
+from cyber_jepa.env.observation_multiplexer import ObservationMultiplexer
 
 
 class CoverageDirectedPolicy:

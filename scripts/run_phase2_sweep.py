@@ -12,7 +12,6 @@ Saves all artifacts cleanly to runs/phase2/ and experiments/phase2/.
 
 import json
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -20,29 +19,27 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
+from sklearn.metrics import f1_score
 from torch.utils.data import DataLoader, Subset
 
 from cyber_jepa.data.dataset import CyberJEPADataset, verify_dataset_integrity
-from cyber_jepa.representations.flat import FlatVectorRepresentation
-from cyber_jepa.representations.feature import FeatureTokenRepresentation
-from cyber_jepa.representations.host import HostTokenRepresentation
-from cyber_jepa.representations.hierarchical import HierarchicalHostSubnetRepresentation
-from cyber_jepa.representations.flat_ablations import (
-    FlatShuffledTimeRepresentation,
-    FlatShuffledFeaturesRepresentation,
-    FlatCurrentOnlyRepresentation,
-    FlatVariableHistoryRepresentation,
-)
-from cyber_jepa.models.jepa import CyberJEPA
-from cyber_jepa.training.trainer import Trainer
-from cyber_jepa.evaluation.probes import LinearProbeEvaluator
 from cyber_jepa.evaluation.diagnostics_extended import (
     compute_extended_latent_diagnostics,
     plot_latent_pca_2d,
 )
-from cyber_jepa.evaluation.probes import compute_bootstrap_ci
-from sklearn.metrics import f1_score, roc_auc_score
-
+from cyber_jepa.evaluation.probes import LinearProbeEvaluator, compute_bootstrap_ci
+from cyber_jepa.models.jepa import CyberJEPA
+from cyber_jepa.representations.feature import FeatureTokenRepresentation
+from cyber_jepa.representations.flat import FlatVectorRepresentation
+from cyber_jepa.representations.flat_ablations import (
+    FlatCurrentOnlyRepresentation,
+    FlatShuffledFeaturesRepresentation,
+    FlatShuffledTimeRepresentation,
+    FlatVariableHistoryRepresentation,
+)
+from cyber_jepa.representations.hierarchical import HierarchicalHostSubnetRepresentation
+from cyber_jepa.representations.host import HostTokenRepresentation
+from cyber_jepa.training.trainer import Trainer
 
 SEEDS = [1001, 2003, 3005]
 HORIZON_K = 8
@@ -64,6 +61,8 @@ def check_git_clean() -> None:
         raise RuntimeError(f"Git working tree is not clean! Refusing to run Phase 2 sweep.\n{res.stdout}")
 
 import random
+
+
 def set_seed(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
@@ -427,7 +426,7 @@ def generate_phase2_report(results: list[dict[str, Any]], output_path: Path):
         })
     sum_df = pd.DataFrame(summary_list).sort_values(by="f1_mean", ascending=False)
 
-    md = f"""# Cyber-JEPA Phase 2 Final Report: Representation Fairness Audit & Ablations
+    md = """# Cyber-JEPA Phase 2 Final Report: Representation Fairness Audit & Ablations
 
 ## Executive Summary
 This phase investigated **why** the flat temporal representation outperformed structured feature/host/hierarchical representations in Phase 1. 

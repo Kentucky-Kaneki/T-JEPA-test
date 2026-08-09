@@ -7,16 +7,16 @@ dynamic Sleep action index resolution, and strict oracle data separation.
 
 import inspect
 from pathlib import Path
-import numpy as np
-import pytest
-import CybORG as cyborg_pkg
 
-from cyber_jepa.env.observation_multiplexer import ObservationMultiplexer
-from cyber_jepa.env.action_mapper import ActionMapper
+import CybORG as cyborg_pkg
+import numpy as np
 from CybORG import CybORG
+from CybORG.Agents import B_lineAgent
 from CybORG.Agents.Wrappers import ChallengeWrapper
 from CybORG.Simulator.Scenarios import FileReaderScenarioGenerator
-from CybORG.Agents import B_lineAgent, RedMeanderAgent
+
+from cyber_jepa.env.action_mapper import ActionMapper
+from cyber_jepa.env.observation_multiplexer import ObservationMultiplexer
 
 
 def get_scenario1b_path() -> str:
@@ -64,7 +64,7 @@ def test_single_step_execution():
         assert mux.step_counter == step_num
         assert len(obs.flat) == 52
         assert len(obs.host_features) == 13
-        assert oracle.transition_id == f"ep0_t{step_num}"
+        assert oracle.transition_id == f"traj0_t{step_num:02d}"
 
 
 def test_view_parity_with_official_wrapper():
@@ -128,21 +128,21 @@ def test_underlying_simulator_instrumentation():
     transition_ids = set()
 
     for ep_idx in range(2):
-        ep_id = f"ep_{ep_idx}"
-        obs0, oracle0 = mux.reset(seed=100 + ep_idx, episode_id=ep_id)
-        assert oracle0.transition_id == f"{ep_id}_t0"
+        traj_id = f"traj_{ep_idx}"
+        obs0, oracle0 = mux.reset(seed=100 + ep_idx, trajectory_id=traj_id)
+        assert oracle0.transition_id == f"{traj_id}_t00"
         assert oracle0.transition_id not in transition_ids
         transition_ids.add(oracle0.transition_id)
 
         for step_idx in range(1, 6):
             obs, r, act, done, info, oracle = mux.step(
                 action=mux.action_mapper.get_sleep_index(),
-                episode_id=ep_id,
+                trajectory_id=traj_id,
             )
-            t_id = f"{ep_id}_t{step_idx}"
+            t_id = f"{traj_id}_t{step_idx:02d}"
             assert obs.timestep == step_idx
             assert oracle.t == step_idx
-            assert oracle.episode_id == ep_id
+            assert oracle.trajectory_id == traj_id
             assert oracle.transition_id == t_id
             assert t_id not in transition_ids
             transition_ids.add(t_id)
@@ -158,15 +158,15 @@ def test_seed_replay_determinism():
     mux1 = ObservationMultiplexer(scenario_path=scen_path, red_agent_type="meander", seed=999)
     mux2 = ObservationMultiplexer(scenario_path=scen_path, red_agent_type="meander", seed=999)
 
-    obs1, oracle1 = mux1.reset(seed=999, episode_id="ep_det")
-    obs2, oracle2 = mux2.reset(seed=999, episode_id="ep_det")
+    obs1, oracle1 = mux1.reset(seed=999, trajectory_id="traj_det")
+    obs2, oracle2 = mux2.reset(seed=999, trajectory_id="traj_det")
 
     assert obs1.flat == obs2.flat
     assert oracle1.host_compromise_status == oracle2.host_compromise_status
 
     for step_num in range(1, 6):
-        o1, r1, a1, d1, _, or1 = mux1.step(action=step_num % mux1.action_mapper.num_actions, episode_id="ep_det")
-        o2, r2, a2, d2, _, or2 = mux2.step(action=step_num % mux2.action_mapper.num_actions, episode_id="ep_det")
+        o1, r1, a1, d1, _, or1 = mux1.step(action=step_num % mux1.action_mapper.num_actions, trajectory_id="traj_det")
+        o2, r2, a2, d2, _, or2 = mux2.step(action=step_num % mux2.action_mapper.num_actions, trajectory_id="traj_det")
 
         assert o1.flat == o2.flat
         assert r1 == r2

@@ -6,6 +6,7 @@ pairwise cosine similarity, and evaluates representation collapse constraints.
 """
 
 from typing import Any
+
 import numpy as np
 import torch
 import torch.nn.functional as F

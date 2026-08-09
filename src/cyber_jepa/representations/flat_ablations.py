@@ -10,6 +10,7 @@ Contains:
 
 import torch
 import torch.nn as nn
+
 from cyber_jepa.representations.flat import FlatVectorRepresentation
 
 

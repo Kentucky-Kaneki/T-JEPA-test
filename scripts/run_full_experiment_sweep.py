@@ -7,7 +7,6 @@ representation diagnostics, and applies preregistered Section 13 selection rules
 """
 
 import json
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -18,16 +17,15 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, Subset
 
 from cyber_jepa.data.dataset import CyberJEPADataset
-from cyber_jepa.representations.flat import FlatVectorRepresentation
-from cyber_jepa.representations.feature import FeatureTokenRepresentation
-from cyber_jepa.representations.host import HostTokenRepresentation
-from cyber_jepa.representations.hierarchical import HierarchicalHostSubnetRepresentation
-from cyber_jepa.models.jepa import CyberJEPA
-from cyber_jepa.training.trainer import Trainer
-from cyber_jepa.evaluation.probes import LinearProbeEvaluator
 from cyber_jepa.evaluation.diagnostics import compute_latent_geometry_diagnostics
+from cyber_jepa.evaluation.probes import LinearProbeEvaluator
 from cyber_jepa.evaluation.selection import apply_preregistered_selection_rule
-
+from cyber_jepa.models.jepa import CyberJEPA
+from cyber_jepa.representations.feature import FeatureTokenRepresentation
+from cyber_jepa.representations.flat import FlatVectorRepresentation
+from cyber_jepa.representations.hierarchical import HierarchicalHostSubnetRepresentation
+from cyber_jepa.representations.host import HostTokenRepresentation
+from cyber_jepa.training.trainer import Trainer
 
 MODEL_CLASSES = {
     "flat": FlatVectorRepresentation,

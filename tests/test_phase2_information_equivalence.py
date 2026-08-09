@@ -8,20 +8,19 @@ Verifies:
 4. Feature identity and host mapping correctness.
 """
 
-import pytest
 import torch
 
-from cyber_jepa.representations.flat import FlatVectorRepresentation
-from cyber_jepa.representations.feature import FeatureTokenRepresentation
-from cyber_jepa.representations.host import HostTokenRepresentation
-from cyber_jepa.representations.hierarchical import HierarchicalHostSubnetRepresentation
 from cyber_jepa.representations.canonical import CanonicalHostExtractor
+from cyber_jepa.representations.feature import FeatureTokenRepresentation
+from cyber_jepa.representations.flat import FlatVectorRepresentation
 from cyber_jepa.representations.flat_ablations import (
-    FlatShuffledTimeRepresentation,
-    FlatShuffledFeaturesRepresentation,
     FlatCurrentOnlyRepresentation,
+    FlatShuffledFeaturesRepresentation,
+    FlatShuffledTimeRepresentation,
     FlatVariableHistoryRepresentation,
 )
+from cyber_jepa.representations.hierarchical import HierarchicalHostSubnetRepresentation
+from cyber_jepa.representations.host import HostTokenRepresentation
 
 
 def test_representation_information_equivalence():

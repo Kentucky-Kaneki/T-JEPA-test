@@ -9,20 +9,20 @@ JSON manifests, and SHA256 checksums with atomic temporary file renaming.
 import datetime
 import hashlib
 import json
+from collections.abc import Hashable
 from pathlib import Path
-from typing import Any, Hashable
+from typing import Any
+
 import numpy as np
 import pandas as pd
 import zstandard as zstd
 
 from cyber_jepa.data.schema import (
-    BlueObservation,
-    ActionSpec,
-    OracleLabels,
-    Transition,
+    SCENARIO1B_ACTION_TYPES,
     SCENARIO1B_HOST_SLOTS,
     SCENARIO1B_SUBNET_SLOTS,
-    SCENARIO1B_ACTION_TYPES,
+    OracleLabels,
+    Transition,
 )
 
 
@@ -205,7 +205,7 @@ class DatasetStorageManager:
             cls.verify_shard_checksums(shard_dir)
 
         trans_df = pd.read_parquet(shard_dir / "transitions.parquet")
-        with open(shard_dir / "manifest.json", "r") as f:
+        with open(shard_dir / "manifest.json") as f:
             manifest = json.load(f)
 
         transitions_list = trans_df.to_dict(orient="records")
@@ -219,7 +219,7 @@ class DatasetStorageManager:
             raise FileNotFoundError(f"Checksum file missing: {checksum_path}")
 
         expected: dict[str, str] = {}
-        with open(checksum_path, "r") as f:
+        with open(checksum_path) as f:
             for line in f:
                 line = line.strip()
                 if line:

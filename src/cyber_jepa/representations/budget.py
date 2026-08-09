@@ -6,9 +6,8 @@ to keep total trainable parameter counts within 10% across all four representati
 """
 
 from typing import Any
-import torch
-import torch.nn as nn
 
+import torch.nn as nn
 
 CANDIDATE_FFN_WIDTHS = [128, 192, 256, 320, 384]
 

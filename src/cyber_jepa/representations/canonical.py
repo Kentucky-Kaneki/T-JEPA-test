@@ -6,11 +6,8 @@ without argmax heuristics over arbitrary vector slices.
 """
 
 from dataclasses import dataclass
-from typing import Any
-import torch
-import torch.nn as nn
 
-from cyber_jepa.data.schema import SCENARIO1B_HOST_SLOTS, SCENARIO1B_SUBNET_SLOTS, UNKNOWN_TOKEN, NONE_TOKEN
+import torch
 
 
 @dataclass

@@ -11,11 +11,12 @@ Computes:
 
 from pathlib import Path
 from typing import Any
+
+import matplotlib
 import numpy as np
 import torch
-import torch.nn.functional as F
 from sklearn.decomposition import PCA
-import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 

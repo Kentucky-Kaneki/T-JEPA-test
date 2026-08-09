@@ -8,14 +8,13 @@ Verifies:
 """
 
 import torch
-import pytest
 
-from cyber_jepa.representations.flat import FlatVectorRepresentation
+from cyber_jepa.representations.budget import check_parameter_budget_alignment, count_parameters
 from cyber_jepa.representations.feature import FeatureTokenRepresentation
-from cyber_jepa.representations.host import HostTokenRepresentation
+from cyber_jepa.representations.flat import FlatVectorRepresentation
 from cyber_jepa.representations.hierarchical import HierarchicalHostSubnetRepresentation
+from cyber_jepa.representations.host import HostTokenRepresentation
 from cyber_jepa.representations.masking import TargetMasker
-from cyber_jepa.representations.budget import count_parameters, check_parameter_budget_alignment
 
 
 def test_flat_vector_representation_shape():

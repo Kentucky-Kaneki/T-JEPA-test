@@ -7,9 +7,10 @@ Exposes TargetSpec query interface for predicting feature, host, subnet, or netw
 """
 
 from dataclasses import dataclass
-from typing import Any
+
 import torch
 import torch.nn as nn
+
 
 def compute_jepa_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     """Layer-Normalized Smooth L1 JEPA Loss."""
@@ -69,7 +70,6 @@ class ActionEncoder(nn.Module):
 
     def _build_scenario1b_action_tables(self) -> tuple[list[int], list[int], list[int]]:
         """Build deterministic lookup tables for discrete action indices 0..65."""
-        from cyber_jepa.env.action_mapper import ActionMapper
         # Standard Scenario1b 66-action mapping definition
         types = [0]*66
         hosts = [0]*66

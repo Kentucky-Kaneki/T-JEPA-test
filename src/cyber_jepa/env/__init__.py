@@ -4,6 +4,7 @@ Includes compatibility patch for Gym RNG deepcopy in Python 3.10 / NumPy 1.26+.
 """
 
 import copy
+
 try:
     from gym.utils import seeding
 

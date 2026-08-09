@@ -9,15 +9,14 @@ Enforces zero padding across episode boundaries and deterministic episode-level 
 """
 
 import hashlib
-import json
 from pathlib import Path
 from typing import Any
+
 import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
-from cyber_jepa.data.schema import BlueObservation, ActionSpec
 
 def verify_dataset_integrity(shard_dirs: list[Path]) -> None:
     """Strictly enforce uniqueness and 1-to-1 transition-to-oracle join across all shards."""
@@ -84,7 +83,7 @@ def generate_group_splits(
     train_eps, val_eps, test_eps = [], [], []
 
     for grp_id in sorted(list(set(group_ids))):
-        h = hashlib.sha256(f"{salt}_{grp_id}".encode("utf-8")).hexdigest()
+        h = hashlib.sha256(f"{salt}_{grp_id}".encode()).hexdigest()
         val_hash = int(h[:8], 16) / 0xFFFFFFFF
 
         if val_hash < train_ratio:
@@ -101,26 +100,32 @@ def generate_group_splits(
     }
 
 
-def generate_ood_splits(
+def generate_policy_transfer_splits(
     transitions_df: pd.DataFrame,
 ) -> dict[str, dict[str, list[str]]]:
-    """Generate Out-of-Distribution (OOD) transfer splits: B-line vs Meander."""
-    bline_eps = sorted(transitions_df[transitions_df["red_policy"] == "bline"]["split_group_id"].unique().tolist())
-    meander_eps = sorted(transitions_df[transitions_df["red_policy"] == "meander"]["split_group_id"].unique().tolist())
+    """Generate Policy Transfer splits using trajectory_id predicates."""
+    bline_trajs = sorted(transitions_df[transitions_df["red_policy"] == "bline"]["trajectory_id"].unique().tolist())
+    meander_trajs = sorted(transitions_df[transitions_df["red_policy"] == "meander"]["trajectory_id"].unique().tolist())
+
+    assert set(bline_trajs).isdisjoint(set(meander_trajs)), "Policy transfer trajectory overlap detected!"
 
     return {
-        "bline_to_meander": {"train": bline_eps, "test": meander_eps},
-        "meander_to_bline": {"train": meander_eps, "test": bline_eps},
+        "bline_to_meander": {"train": bline_trajs, "test": meander_trajs},
+        "meander_to_bline": {"train": meander_trajs, "test": bline_trajs},
     }
 
 
-class CyberJEPADataset(Dataset):
+generate_ood_splits = generate_policy_transfer_splits
+
+
+class CyberJEPADataset(Dataset[dict[str, Any]]):
     """PyTorch Dataset exposing windowed observations, action sequences, and targets."""
 
     def __init__(
         self,
         shard_dirs: list[Path],
-        split_group_set: list[str],
+        split_group_set: list[str] | set[str] | None = None,
+        trajectory_set: list[str] | set[str] | None = None,
         horizon: int = 1,
         history_len: int = 4,
         fit_normalizers: bool = False,
@@ -128,7 +133,8 @@ class CyberJEPADataset(Dataset):
     ):
         self.horizon = horizon
         self.history_len = history_len
-        self.split_group_set = set(split_group_set)
+        self.split_group_set = set(split_group_set) if split_group_set is not None else None
+        self.trajectory_set = set(trajectory_set) if trajectory_set is not None else None
 
         self.samples: list[dict[str, Any]] = []
         self._load_and_window_shards(shard_dirs)
@@ -145,8 +151,13 @@ class CyberJEPADataset(Dataset):
             obs_data = np.load(sdir / "observations.npz")
             flats = obs_data["flat"]
 
-            # Filter for requested split groups
-            filtered_df = trans_df[trans_df["split_group_id"].isin(self.split_group_set)]
+            # Filter for requested split groups or trajectory IDs
+            filtered_df = trans_df
+            if self.split_group_set is not None:
+                filtered_df = filtered_df[filtered_df["split_group_id"].isin(self.split_group_set)]
+            if self.trajectory_set is not None:
+                filtered_df = filtered_df[filtered_df["trajectory_id"].isin(self.trajectory_set)]
+
             ep_groups = filtered_df.groupby("trajectory_id", sort=True)
 
             for traj_id, group in ep_groups:

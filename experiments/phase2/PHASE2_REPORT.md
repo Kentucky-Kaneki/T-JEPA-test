@@ -3,31 +3,20 @@
 ## Executive Summary
 This phase investigated **why** the flat temporal representation outperformed structured feature/host/hierarchical representations in Phase 1. 
 
-We executed **17 configurations × 3 seeds = 51 GPU training runs** at fixed horizon $k=8$ with full diagnostic tracing, capacity rescue, temporal/feature permutation controls, and parameter accounting.
+We executed **6 configurations × 3 seeds = 18 GPU training runs** at fixed horizon $k=8$ with full diagnostic tracing, capacity rescue, temporal/feature permutation controls, and parameter accounting.
 
 ---
 
 ## 1. Primary Aggregate Results (Mean ± Std across 3 seeds @ k=8)
 
-| Configuration | Hidden Dim | Params | OOD Macro F1 ↑ | AUROC ↑ | Effective Rank |
-|---|---:|---:|---:|---:|---:|
-| `flat_h8` | 64 | 541,184 | **0.7159 ± 0.0128** | 0.8139 ± 0.0040 | 3.5 |
-| `flat_shuffle_time` | 64 | 540,672 | **0.6917 ± 0.0087** | 0.8131 ± 0.0089 | 3.6 |
-| `flat_normal` | 64 | 540,672 | **0.6772 ± 0.0086** | 0.8047 ± 0.0077 | 5.8 |
-| `flat_shuffle_features` | 64 | 540,672 | **0.6739 ± 0.0051** | 0.8075 ± 0.0071 | 7.4 |
-| `flat_h4` | 64 | 540,672 | **0.6728 ± 0.0216** | 0.8081 ± 0.0137 | 5.1 |
-| `flat_h2` | 64 | 540,416 | **0.6710 ± 0.0065** | 0.8177 ± 0.0074 | 8.2 |
-| `flat_h1` | 64 | 540,288 | **0.6548 ± 0.0158** | 0.8016 ± 0.0028 | 12.4 |
-| `flat_current_only` | 64 | 540,288 | **0.6521 ± 0.0249** | 0.7898 ± 0.0318 | 8.4 |
-| `feature_2x` | 128 | 1,705,216 | **0.5958 ± 0.0108** | 0.7103 ± 0.0063 | 1.4 |
-| `feature_base` | 64 | 488,448 | **0.5898 ± 0.0238** | 0.7046 ± 0.0154 | 1.4 |
-| `feature_4x` | 256 | 6,326,016 | **0.5777 ± 0.0202** | 0.6986 ± 0.0149 | 1.7 |
-| `host_base` | 64 | 681,472 | **0.5555 ± 0.0072** | 0.6858 ± 0.0140 | 1.2 |
-| `host_2x` | 128 | 2,484,480 | **0.5534 ± 0.0070** | 0.6819 ± 0.0177 | 1.2 |
-| `host_4x` | 256 | 9,457,408 | **0.4773 ± 0.0177** | 0.6746 ± 0.0112 | 1.2 |
-| `hierarchical_2x` | 128 | 3,015,168 | **0.3996 ± 0.0031** | 0.6746 ± 0.0092 | 1.1 |
-| `hierarchical_4x` | 256 | 11,567,360 | **0.3996 ± 0.0031** | 0.4380 ± 0.1865 | 1.1 |
-| `hierarchical_base` | 64 | 815,744 | **0.3996 ± 0.0031** | 0.6775 ± 0.0195 | 1.2 |
+| Configuration | Hidden Dim | Params | Holdout Macro F1 ↑ | Pers. Baseline F1 | AUROC ↑ | Effective Rank |
+|---|---:|---:|---:|---:|---:|---:|
+| `flat_h8` | 64 | 541,184 | **0.8568 ± 0.0194** | 0.8172 | 0.9280 ± 0.0100 | 2.7 |
+| `flat_h4` | 64 | 540,672 | **0.8557 ± 0.0094** | 0.8154 | 0.9264 ± 0.0120 | 3.6 |
+| `flat_h1` | 64 | 540,288 | **0.8410 ± 0.0084** | 0.8283 | 0.9159 ± 0.0112 | 9.3 |
+| `host_base` | 64 | 681,472 | **0.6140 ± 0.0230** | 0.8154 | 0.6902 ± 0.0470 | 1.3 |
+| `feature_base` | 64 | 488,448 | **0.6045 ± 0.0451** | 0.8154 | 0.6743 ± 0.0209 | 1.4 |
+| `hierarchical_base` | 64 | 815,744 | **0.4146 ± 0.0784** | 0.8154 | 0.6157 ± 0.0293 | 1.2 |
 
 ---
 

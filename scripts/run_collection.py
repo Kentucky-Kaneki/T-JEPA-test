@@ -9,10 +9,10 @@ import argparse
 import inspect
 from pathlib import Path
 
-from cyber_jepa.data.collector import collect_shard
-from cyber_jepa.data.characterize import analyze_dataset_shards
 import CybORG as cyborg_pkg
 
+from cyber_jepa.data.characterize import analyze_dataset_shards
+from cyber_jepa.data.collector import collect_shard
 
 RED_POLICIES = ["bline", "meander"]
 BLUE_POLICIES = ["sleep", "random", "coverage"]
@@ -36,11 +36,11 @@ def run_full_collection(
     output_base_dir.mkdir(parents=True, exist_ok=True)
     reports_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"\n=======================================================")
-    print(f" Starting CybORG Trajectory Collection Pipeline")
+    print("\n=======================================================")
+    print(" Starting CybORG Trajectory Collection Pipeline")
     print(f" Matrix: {len(RED_POLICIES)} Red x {len(BLUE_POLICIES)} Blue x {len(COLLECTION_SEEDS)} Seeds = 30 Shards")
     print(f" Episodes per shard: {episodes}, Max steps: {max_steps}")
-    print(f"=======================================================\n")
+    print("=======================================================\n")
 
     completed = 0
     total_shards = len(RED_POLICIES) * len(BLUE_POLICIES) * len(COLLECTION_SEEDS)
@@ -67,16 +67,16 @@ def run_full_collection(
 
     print(f"\n[+] Trajectory collection complete! Saved {total_shards} shards to {output_base_dir}\n")
 
-    print(f"Running dataset characterization & acceptance audit ...")
+    print("Running dataset characterization & acceptance audit ...")
     report_dict, md_text = analyze_dataset_shards(output_base_dir, reports_dir)
 
-    print(f"\n=======================================================")
-    print(f" Dataset Characterization Summary:")
+    print("\n=======================================================")
+    print(" Dataset Characterization Summary:")
     print(f" Total Transitions: {report_dict['total_transitions']:,}")
     print(f" Total Episodes:    {report_dict['total_episodes']:,}")
     print(f" Zero-Change Rate:  {report_dict['zero_change_fraction']:.2%}")
     print(f" Acceptance Gates:  {'PASSED' if report_dict['acceptance_gates_passed'] else 'FAILED'}")
-    print(f"=======================================================\n")
+    print("=======================================================\n")
 
 
 if __name__ == "__main__":

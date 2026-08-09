@@ -8,7 +8,7 @@ must remain intact, importable, and functional.
 
 import sys
 from pathlib import Path
-import pytest
+
 import torch
 import torch.nn.functional as F
 
@@ -18,10 +18,10 @@ def test_legacy_modules_importable():
     project_root = Path(__file__).resolve().parent.parent
     sys.path.insert(0, str(project_root))
 
-    import model as legacy_model
-    import trainer as legacy_trainer
     import data as legacy_data
     import downstream as legacy_downstream
+    import model as legacy_model
+    import trainer as legacy_trainer
 
     assert hasattr(legacy_model, "TJEPA")
     assert hasattr(legacy_trainer, "pretrain_tjepa")

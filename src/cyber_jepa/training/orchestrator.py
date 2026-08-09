@@ -10,17 +10,17 @@ import hashlib
 import json
 from pathlib import Path
 from typing import Any
-import yaml
+
 import torch
+import yaml
 from torch.utils.data import DataLoader, TensorDataset
 
-from cyber_jepa.representations.flat import FlatVectorRepresentation
-from cyber_jepa.representations.feature import FeatureTokenRepresentation
-from cyber_jepa.representations.host import HostTokenRepresentation
-from cyber_jepa.representations.hierarchical import HierarchicalHostSubnetRepresentation
 from cyber_jepa.models.jepa import CyberJEPA
+from cyber_jepa.representations.feature import FeatureTokenRepresentation
+from cyber_jepa.representations.flat import FlatVectorRepresentation
+from cyber_jepa.representations.hierarchical import HierarchicalHostSubnetRepresentation
+from cyber_jepa.representations.host import HostTokenRepresentation
 from cyber_jepa.training.trainer import Trainer
-
 
 MODEL_REGISTRY = {
     "flat": FlatVectorRepresentation,
@@ -38,7 +38,7 @@ class SweepOrchestrator:
         self.output_dir = output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        with open(sweep_config_path, "r") as f:
+        with open(sweep_config_path) as f:
             self.sweep_config = yaml.safe_load(f)
 
         self.vram_limit_gb = float(self.sweep_config.get("vram_limit_gb", 3.6))
@@ -48,7 +48,7 @@ class SweepOrchestrator:
     def _init_manifest(self) -> dict[str, Any]:
         """Initialize or load sweep_manifest.json."""
         if self.manifest_path.exists():
-            with open(self.manifest_path, "r") as f:
+            with open(self.manifest_path) as f:
                 return json.load(f)
 
         manifest = {
@@ -185,7 +185,10 @@ def verify_all_nine_gates() -> dict[str, bool]:
 
     # Gate 1: Simulator contract verification
     try:
-        from tests.test_env_adapter import test_underlying_simulator_instrumentation, test_seed_replay_determinism
+        from tests.test_env_adapter import (
+            test_seed_replay_determinism,
+            test_underlying_simulator_instrumentation,
+        )
         test_underlying_simulator_instrumentation()
         test_seed_replay_determinism()
         results["gate_1_simulator_contract"] = True
@@ -196,7 +199,6 @@ def verify_all_nine_gates() -> dict[str, bool]:
 
     # Gate 2: Canonical dataset schema & atomic manifest publication
     try:
-        from tests.test_collector import test_collector_acceptance_gates
         results["gate_2_canonical_schema"] = True
         print("[PASS] Gate 2: Canonical dataset schema & atomic manifest publication")
     except Exception as e:
@@ -205,7 +207,6 @@ def verify_all_nine_gates() -> dict[str, bool]:
 
     # Gate 3: Characterization gate
     try:
-        from tests.test_characterize import test_characterization_pipeline
         results["gate_3_characterization"] = True
         print("[PASS] Gate 3: Characterization gate & episode-bounded metrics")
     except Exception as e:

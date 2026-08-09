@@ -5,9 +5,8 @@ Strict dataclass contracts enforcing zero simulator leakage, explicit unknown/vi
 encoding, canonical transition representations, and sidecar oracle linkage.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
-
 
 UNKNOWN_TOKEN = "UNKNOWN"
 NONE_TOKEN = "NONE"

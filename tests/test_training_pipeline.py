@@ -9,16 +9,15 @@ Verifies:
 """
 
 from pathlib import Path
+
 import torch
-import torch.nn as nn
-import pytest
 from torch.utils.data import DataLoader, TensorDataset
 
+from cyber_jepa.models.jepa import CyberJEPA
 from cyber_jepa.representations.flat import FlatVectorRepresentation
 from cyber_jepa.representations.host import HostTokenRepresentation
-from cyber_jepa.models.jepa import CyberJEPA
-from cyber_jepa.training.trainer import Trainer
 from cyber_jepa.training.orchestrator import SweepOrchestrator
+from cyber_jepa.training.trainer import Trainer
 
 
 def test_trainer_cpu_step(tmp_path: Path):

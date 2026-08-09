@@ -11,11 +11,10 @@ Verifies Section 5.3 acceptance gates:
 """
 
 import inspect
-import shutil
 from pathlib import Path
-import numpy as np
-import pytest
+
 import CybORG as cyborg_pkg
+import numpy as np
 
 from cyber_jepa.data.collector import collect_shard
 from cyber_jepa.data.storage import DatasetStorageManager
@@ -45,7 +44,7 @@ def test_collector_acceptance_gates(tmp_path: Path):
     )
 
     # 1. Reset count equals episode count (3)
-    ep_ids = sorted(list(set(t.episode_id for t in transitions1)))
+    ep_ids = sorted(list(set(t.trajectory_id for t in transitions1)))
     assert len(ep_ids) == 3
 
     # 2. Simulator step count equals transition count
@@ -57,16 +56,16 @@ def test_collector_acceptance_gates(tmp_path: Path):
         t_curr = transitions1[i]
         t_next = transitions1[i + 1]
 
-        if t_curr.episode_id == t_next.episode_id and not t_curr.done:
-            assert t_curr.t + 1 == t_next.t
+        if t_curr.trajectory_id == t_next.trajectory_id and not t_curr.done:
+            assert t_curr.step_index + 1 == t_next.step_index
             np.testing.assert_allclose(
                 np.array(t_curr.next_flat_obs),
                 np.array(t_next.flat_obs),
-                err_msg=f"Discontinuity between t={t_curr.t} and t={t_next.t} in {t_curr.episode_id}"
+                err_msg=f"Discontinuity between t={t_curr.step_index} and t={t_next.step_index} in {t_curr.trajectory_id}"
             )
         else:
             # Episode boundary
-            assert t_curr.done or t_curr.t == 10
+            assert t_curr.done or t_curr.step_index == 10
 
     # 4. Host count and vector shape
     for t in transitions1:

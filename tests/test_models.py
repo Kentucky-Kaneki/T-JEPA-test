@@ -9,19 +9,16 @@ Verifies:
 - Layer-Normalized Smooth L1 loss computation
 """
 
-import copy
 import torch
-import torch.nn as nn
-import pytest
 
-from cyber_jepa.representations.flat import FlatVectorRepresentation
-from cyber_jepa.models.jepa import CyberJEPA
-from cyber_jepa.models.predictor import ActionEncoder, LatentPredictor, compute_jepa_loss
 from cyber_jepa.models.baselines import (
     LatentPersistenceBaseline,
     ObservationPersistenceBaseline,
     RawActionConditionedMLP,
 )
+from cyber_jepa.models.jepa import CyberJEPA
+from cyber_jepa.models.predictor import compute_jepa_loss
+from cyber_jepa.representations.flat import FlatVectorRepresentation
 
 
 def test_exact_target_encoder_initialization():

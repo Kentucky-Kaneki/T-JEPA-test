@@ -5,7 +5,6 @@ Implements semantic target block sampling (50% changed targets, 50% uniform)
 and spatial/temporal context masking using learned mask tokens.
 """
 
-from typing import Any
 import torch
 import torch.nn as nn
 

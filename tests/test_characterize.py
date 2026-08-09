@@ -6,11 +6,9 @@ episode-bounded metrics, and acceptance gate enforcement.
 """
 
 from pathlib import Path
-import pytest
-import CybORG as cyborg_pkg
 
-from cyber_jepa.data.collector import collect_shard, get_scenario1b_path
 from cyber_jepa.data.characterize import analyze_dataset_shards
+from cyber_jepa.data.collector import collect_shard, get_scenario1b_path
 
 
 def test_characterization_pipeline(tmp_path: Path):

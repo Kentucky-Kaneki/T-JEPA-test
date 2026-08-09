@@ -9,8 +9,10 @@ Exposes a typed HierarchicalOutput dataclass.
 """
 
 from dataclasses import dataclass
+
 import torch
 import torch.nn as nn
+
 from cyber_jepa.representations.host import HostTokenRepresentation
 
 

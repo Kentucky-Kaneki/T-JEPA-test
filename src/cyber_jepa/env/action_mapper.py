@@ -6,8 +6,10 @@ without hardcoding action index 0 as Sleep.
 """
 
 from typing import Any
+
 from CybORG.Simulator.Actions import Action, Sleep
-from cyber_jepa.data.schema import ActionSpec, NONE_TOKEN
+
+from cyber_jepa.data.schema import NONE_TOKEN, ActionSpec
 
 
 class ActionMapper:
