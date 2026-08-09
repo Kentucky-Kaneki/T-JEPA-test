@@ -91,7 +91,6 @@ def collect_shard(
 
         # Reset simulator ONCE per episode
         obs0, oracle0 = mux.reset(seed=ep_seed, trajectory_id=trajectory_id, split_group_id=split_group_id)
-        oracle_labels.append(oracle0)
 
         current_obs = obs0
 
