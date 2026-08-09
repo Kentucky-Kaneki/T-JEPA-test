@@ -96,7 +96,7 @@ class ObservationMultiplexer:
             timestep=0,
         )
 
-        transition_id = f"{trajectory_id}_t0"
+        transition_id = f"{trajectory_id}_t00"
         oracle = self._extract_oracle_labels(transition_id=transition_id, trajectory_id=trajectory_id, split_group_id=split_group_id, timestep=0)
 
         return obs, oracle
@@ -132,7 +132,7 @@ class ObservationMultiplexer:
             timestep=t,
         )
 
-        transition_id = f"{trajectory_id}_t{t}"
+        transition_id = f"{trajectory_id}_t{t:02d}"
         oracle = self._extract_oracle_labels(transition_id=transition_id, trajectory_id=trajectory_id, split_group_id=split_group_id, timestep=t)
 
         return obs, float(reward), action_spec, bool(done), info, oracle
