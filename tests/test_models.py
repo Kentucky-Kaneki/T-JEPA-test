@@ -1,24 +1,26 @@
 """
-Unit tests for CyberJEPA architecture, EMA target updates, ActionEncoder, Predictor, and Baselines.
+Unit tests for CyberJEPA architecture, EMA target updates, ActionEncoder, Predictor, Aggregators, and Baselines.
 
 Verifies:
 - Exact initial state dict match between online and target encoders
-- target_encoder parameters have requires_grad=False
-- EMA updates target encoder weights toward online weights
-- LatentPredictor is sensitive to action sequence changes
-- Layer-Normalized Smooth L1 loss computation
+- target_encoder parameters have requires_grad=False and stay frozen
+- Single-frame target encoding (T=1)
+- ContextAggregator interventions (legacy_last_step_mean, learned_query_pool, token_preserving_predictor)
+- Subsystem parameter accounting
 """
 
 import torch
 
+from cyber_jepa.models.aggregators import LegacyLastStepMean, LearnedQueryPool, TokenPreservingAggregator
 from cyber_jepa.models.baselines import (
     LatentPersistenceBaseline,
     ObservationPersistenceBaseline,
     RawActionConditionedMLP,
 )
-from cyber_jepa.models.jepa import CyberJEPA
+from cyber_jepa.models.jepa import CyberJEPA, count_subsystem_parameters
 from cyber_jepa.models.predictor import compute_jepa_loss
 from cyber_jepa.representations.flat import FlatVectorRepresentation
+from cyber_jepa.representations.feature import FeatureTokenRepresentation
 
 
 def test_exact_target_encoder_initialization():
@@ -45,7 +47,6 @@ def test_ema_target_update():
         for p in jepa.online_encoder.parameters():
             p.add_(1.0)
 
-    # Initial target param before EMA update
     p_target_before = list(jepa.target_encoder.parameters())[0].clone()
 
     # EMA update with momentum m=0.5
@@ -72,13 +73,56 @@ def test_action_predictor_action_sensitivity():
     assert not torch.allclose(pred1, pred2, atol=1e-4), "Predictor output is insensitive to action sequence!"
 
 
+def test_single_frame_target_encoding():
+    """Verify single-frame target observation (T=1) produces valid target latent [B, hidden_dim]."""
+    online = FlatVectorRepresentation(hidden_dim=64, ffn_dim=256)
+    jepa = CyberJEPA(online_encoder=online, hidden_dim=64)
+
+    hist = torch.randn(4, 4, 52)
+    single_target = torch.randn(4, 52)
+    act_seq = torch.tensor([[0, 1], [0, 2], [1, 1], [2, 2]], dtype=torch.long)
+
+    loss, pred_z, target_z = jepa(hist, act_seq, single_target)
+    assert target_z.shape == (4, 64)
+    assert pred_z.shape == (4, 64)
+    assert loss.dim() == 0
+
+
+def test_aggregator_modes():
+    """Verify all three aggregator modes operate properly in CyberJEPA."""
+    for mode in ["legacy_last_step_mean", "learned_query_pool", "token_preserving_predictor"]:
+        feat_enc = FeatureTokenRepresentation(num_features=52, hidden_dim=64, ffn_dim=256)
+        jepa = CyberJEPA(online_encoder=feat_enc, hidden_dim=64, aggregator_mode=mode)
+
+        hist = torch.randn(2, 4, 52)
+        target = torch.randn(2, 52)
+        act_seq = torch.tensor([[0, 1], [2, 3]], dtype=torch.long)
+
+        loss, pred_z, target_z = jepa(hist, act_seq, target)
+        assert pred_z.shape == (2, 64)
+        assert target_z.shape == (2, 64)
+
+
+def test_subsystem_parameter_accounting():
+    """Verify parameter counting per subsystem."""
+    online = FlatVectorRepresentation(hidden_dim=64, ffn_dim=256)
+    jepa = CyberJEPA(online_encoder=online, hidden_dim=64, aggregator_mode="learned_query_pool")
+    counts = count_subsystem_parameters(jepa)
+
+    assert "tokenizer_and_encoder" in counts
+    assert "aggregator" in counts
+    assert "action_encoder" in counts
+    assert "total_trainable" in counts
+    assert counts["total_trainable"] > 0
+
+
 def test_jepa_loss_computation():
     """Verify compute_jepa_loss evaluates Smooth L1 on LayerNorm latents."""
     z_hat = torch.randn(8, 64)
     z_target = torch.randn(8, 64)
 
     loss = compute_jepa_loss(z_hat, z_target)
-    assert loss.dim() == 0 # Scalar loss
+    assert loss.dim() == 0
     assert loss.item() >= 0.0
 
 

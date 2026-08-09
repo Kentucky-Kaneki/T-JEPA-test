@@ -1,15 +1,17 @@
 """
 Action-Conditioned Transformer Predictor & Target Query Granularity Interface for Cyber-JEPA.
 
-Takes encoded context representation z_t and K sequence of action tokens,
+Takes encoded context representation z_t (vector or token memory) and K sequence of action tokens,
 using cross-attention or causal self-attention over horizon sequence [1..K].
 Exposes TargetSpec query interface for predicting feature, host, subnet, or network targets.
 """
 
 from dataclasses import dataclass
-
+from typing import Any, cast
 import torch
 import torch.nn as nn
+
+from cyber_jepa.models.context import ContextTokens
 
 
 def compute_jepa_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
@@ -24,7 +26,7 @@ class TargetSpec:
     """Target Granularity Query Specification (Phase 5 Contract)."""
     horizon: int                             # k in 1..K
     granularity: str                         # 'feature', 'host', 'subnet', 'network'
-    target_id: int                           # Entity index (0..12 for host, 0..2 for subnet, 0 for network)
+    target_id: int = 0                      # Entity index (0..12 for host, 0..2 for subnet, 0 for network)
     valid_mask: torch.Tensor | None = None   # Boolean validity mask
 
 
@@ -70,12 +72,10 @@ class ActionEncoder(nn.Module):
 
     def _build_scenario1b_action_tables(self) -> tuple[list[int], list[int], list[int]]:
         """Build deterministic lookup tables for discrete action indices 0..65."""
-        # Standard Scenario1b 66-action mapping definition
-        types = [0]*66
-        hosts = [0]*66
-        subnets = [0]*66
+        types = [0] * 66
+        hosts = [0] * 66
+        subnets = [0] * 66
 
-        # Fill via semantic rules matching ActionMapper
         types[0] = 0; hosts[0] = 0; subnets[0] = 0 # Sleep
         types[1] = 1; hosts[1] = 0; subnets[1] = 0 # Monitor
 
@@ -123,7 +123,6 @@ class ActionEncoder(nn.Module):
         device = actions.device
 
         if actions.dim() == 2:
-            # Discrete indices [B, K] -> deterministic lookup table
             act_idx = torch.clamp(actions, 0, 65)
             type_ids = self.type_map[act_idx]
             host_ids = self.host_map[act_idx]
@@ -148,11 +147,11 @@ class ActionEncoder(nn.Module):
         v_e = self.valid_emb(valid_ids)
 
         token = t_e + h_e + s_e + p_e + v_e
-        return self.proj(token) # [B, K, hidden_dim]
+        return cast(torch.Tensor, self.proj(token)) # [B, K, hidden_dim]
 
 
 class LatentPredictor(nn.Module):
-    """Transformer Predictor mapping z_t and action sequence to target queries z_{t+k}."""
+    """Transformer Predictor mapping context and action sequence to target queries z_{t+k}."""
 
     def __init__(
         self,
@@ -168,11 +167,12 @@ class LatentPredictor(nn.Module):
 
         self.action_encoder = ActionEncoder(hidden_dim=hidden_dim, max_horizon=max_horizon)
 
-        # Target Granularity Embeddings (Phase 5)
+        # Target Granularity Embeddings
         self.granularity_emb = nn.Embedding(4, hidden_dim) # 0=feature, 1=host, 2=subnet, 3=network
         self.entity_emb = nn.Embedding(16, hidden_dim)      # 0..15 entity index
+        self.horizon_emb = nn.Embedding(max_horizon + 1, hidden_dim)
 
-        # Transformer Predictor
+        # Transformer Predictor Encoder
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=hidden_dim,
             nhead=num_heads,
@@ -183,62 +183,92 @@ class LatentPredictor(nn.Module):
             norm_first=True,
         )
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+
+        # Decoder for token-preserving cross-attention
+        decoder_layer = nn.TransformerDecoderLayer(
+            d_model=hidden_dim,
+            nhead=num_heads,
+            dim_feedforward=ffn_dim,
+            dropout=0.1,
+            activation="gelu",
+            batch_first=True,
+            norm_first=True,
+        )
+        self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=num_layers)
+
         self.norm = nn.LayerNorm(hidden_dim)
         self.head = nn.Linear(hidden_dim, hidden_dim)
 
     def forward(
         self,
-        z_t: torch.Tensor,                   # [B, hidden_dim] OR [B, T_hist, hidden_dim]
+        z_t: torch.Tensor | ContextTokens,   # [B, hidden_dim], [B, L, D], or ContextTokens
         actions: torch.Tensor,               # [B, K] discrete action indices
         target_spec: TargetSpec | None = None,
+        memory_padding_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """
-        Predict z_{t+k} given context z_t and action sequence.
-        Returns predicted latent [B, K, hidden_dim] or single target latent [B, hidden_dim].
-        """
-        B = z_t.shape[0]
-        device = z_t.device
-
-        if z_t.dim() == 3:
-            # Aggregate history tokens to context vector
-            z_t_ctx = z_t.mean(dim=1) # [B, hidden_dim]
+        """Predict z_{t+k} given context and action sequence."""
+        memory_tokens: torch.Tensor | None = None
+        if isinstance(z_t, ContextTokens):
+            memory_tokens = z_t.tokens
+            memory_padding_mask = z_t.padding_mask
+            if z_t.global_token is not None and z_t.tokens.dim() == 3:
+                z_t_ctx = z_t.global_token
+            else:
+                z_t_ctx = z_t.tokens
         else:
             z_t_ctx = z_t
+            memory_tokens = z_t if z_t.dim() == 3 else None
 
-        # Encode actions: [B, K, hidden_dim]
+        B = z_t_ctx.shape[0]
+        device = z_t_ctx.device
         act_tokens = self.action_encoder(actions)
         K = act_tokens.shape[1]
 
-        # Context token: [B, 1, hidden_dim]
-        ctx_token = z_t_ctx.unsqueeze(1)
+        # Case A: Token-preserving cross-attention prediction (z_t_ctx is 3D memory [B, L, D])
+        if z_t_ctx.dim() == 3:
+            k = target_spec.horizon if target_spec is not None else K
+            h_e = self.horizon_emb(torch.tensor(min(k, self.max_horizon), device=device))
 
-        # Build sequence: [ctx_token, act_1, act_2, ..., act_K]
-        seq = torch.cat([ctx_token, act_tokens], dim=1) # [B, 1+K, hidden_dim]
+            gran_map = {"feature": 0, "host": 1, "subnet": 2, "network": 3}
+            g_id = gran_map.get(target_spec.granularity.lower(), 3) if target_spec is not None else 3
+            g_e = self.granularity_emb(torch.tensor(g_id, device=device))
 
-        # Causal mask for autoregressive propagation
+            t_id = min(target_spec.target_id, 15) if target_spec is not None else 0
+            e_e = self.entity_emb(torch.tensor(t_id, device=device))
+
+            target_query = (g_e + e_e + h_e).unsqueeze(0).unsqueeze(1).expand(B, 1, -1) # [B, 1, D]
+
+            tgt_seq = torch.cat([target_query, act_tokens], dim=1)
+
+            decoded = self.decoder(
+                tgt=tgt_seq,
+                memory=z_t_ctx,
+                memory_key_padding_mask=memory_padding_mask,
+            )
+            decoded = self.norm(decoded)
+            pred_latent = self.head(decoded[:, 0, :]) # [B, D]
+            return cast(torch.Tensor, pred_latent)
+
+        # Case B: Standard vector prediction (z_t_ctx is 2D [B, D])
+        ctx_token = z_t_ctx.unsqueeze(1) # [B, 1, D]
+        seq = torch.cat([ctx_token, act_tokens], dim=1) # [B, 1+K, D]
+
         causal_mask = torch.triu(torch.ones(1 + K, 1 + K, device=device) * float('-inf'), diagonal=1)
-
         out = self.transformer(seq, mask=causal_mask)
         out = self.norm(out)
 
-        # Latent predictions for horizons 1..K: [B, K, hidden_dim]
         pred_latents = self.head(out[:, 1:, :])
 
         if target_spec is not None:
-            # Query target granularity & horizon k
             k = min(target_spec.horizon, K)
-            k_idx = k - 1 # 0-indexed in pred_latents
+            k_idx = k - 1
+            pred_k = pred_latents[:, k_idx, :] # [B, D]
 
-            pred_k = pred_latents[:, k_idx, :] # [B, hidden_dim]
-
-            # Query conditioning
             gran_map = {"feature": 0, "host": 1, "subnet": 2, "network": 3}
             g_id = gran_map.get(target_spec.granularity.lower(), 3)
-
             g_emb = self.granularity_emb(torch.tensor(g_id, device=device))
             e_emb = self.entity_emb(torch.tensor(min(target_spec.target_id, 15), device=device))
 
-            query_conditioned = pred_k + g_emb + e_emb
-            return query_conditioned
+            return cast(torch.Tensor, pred_k + g_emb + e_emb)
         else:
-            return pred_latents
+            return cast(torch.Tensor, pred_latents)

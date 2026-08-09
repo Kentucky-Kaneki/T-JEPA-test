@@ -5,12 +5,17 @@ Encodes each of the 13 network hosts as an explicit semantic entity combining ho
 subnet membership, activity, compromise status, visibility, and relative time embeddings.
 """
 
+from typing import Any, cast
 import torch
 import torch.nn as nn
+
+from cyber_jepa.models.context import ContextTokens, TokenType
 
 
 class HostTokenRepresentation(nn.Module):
     """Host-level tokenization and Transformer encoder."""
+
+    host_subnet_ids: torch.Tensor
 
     def __init__(
         self,
@@ -28,30 +33,25 @@ class HostTokenRepresentation(nn.Module):
         self.hidden_dim = hidden_dim
         self.history_len = history_len
 
-        # Categorical vocabulary embeddings
-        self.host_id_emb = nn.Embedding(num_hosts, hidden_dim)
-        self.subnet_id_emb = nn.Embedding(num_subnets, hidden_dim)
-        self.activity_emb = nn.Embedding(5, hidden_dim)    # None, Scan, Exploit, UNKNOWN, Other
-        self.compromise_emb = nn.Embedding(5, hidden_dim)  # No, Unknown, User, Privileged, UNKNOWN
-        self.visibility_emb = nn.Embedding(2, hidden_dim)  # 0=unobserved, 1=known
-        self.time_emb = nn.Embedding(history_len, hidden_dim)
+        self.host_id_emb: nn.Module = nn.Embedding(num_hosts, hidden_dim)
+        self.subnet_id_emb: nn.Module = nn.Embedding(num_subnets, hidden_dim)
+        self.activity_emb: nn.Module = nn.Embedding(5, hidden_dim)
+        self.compromise_emb: nn.Module = nn.Embedding(5, hidden_dim)
+        self.visibility_emb: nn.Module = nn.Embedding(2, hidden_dim)
+        self.time_emb: nn.Module = nn.Embedding(history_len, hidden_dim)
 
-        # Host-local MLP fusion
-        self.fusion_mlp = nn.Sequential(
+        self.fusion_mlp: nn.Module = nn.Sequential(
             nn.Linear(hidden_dim * 5, ffn_dim),
             nn.LayerNorm(ffn_dim),
             nn.GELU(),
             nn.Linear(ffn_dim, hidden_dim),
         )
 
-        # Functional regularization token
         self.reg_token = nn.Parameter(torch.randn(1, 1, hidden_dim) * 0.02)
 
-        # Fixed Scenario1b subnet mapping per host (0=Enterprise, 1=Operational, 2=User)
-        host_subnets = [0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2] # 13 hosts
+        host_subnets = [0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2]
         self.register_buffer("host_subnet_ids", torch.tensor(host_subnets, dtype=torch.long))
 
-        # Transformer Encoder
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=hidden_dim,
             nhead=num_heads,
@@ -64,65 +64,95 @@ class HostTokenRepresentation(nn.Module):
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         self.norm = nn.LayerNorm(hidden_dim)
 
-    def forward(
+    def encode_context(
         self,
         flat_obs: torch.Tensor,
         host_known_mask: torch.Tensor | None = None,
-    ) -> torch.Tensor:
+        return_context_tokens: bool = True,
+    ) -> ContextTokens | torch.Tensor:
         """
         Input: flat_obs [B, T_hist, 52] or [B, T_hist, 13, 4]
-        Output: host tokens [B, T_hist, 13, hidden_dim]
+        Returns: ContextTokens dataclass containing tokens [B, T_hist * 13, D]
         """
         if flat_obs.dim() == 3:
-            B, T_hist, D = flat_obs.shape
+            B, T_hist = flat_obs.shape[0], flat_obs.shape[1]
             x_hosts = flat_obs.view(B, T_hist, self.num_hosts, 4)
         else:
-            B, T_hist, H, F = flat_obs.shape
+            B, T_hist = flat_obs.shape[0], flat_obs.shape[1]
             x_hosts = flat_obs
-            D = H * F
 
         device = flat_obs.device
 
-        # Extract activity & compromise indices from 4-dim per host
-        # activity: 2 dims, compromise: 2 dims
-        act_logits = x_hosts[:, :, :, :2].argmax(dim=-1) # [B, T_hist, 13]
-        comp_logits = x_hosts[:, :, :, 2:].argmax(dim=-1) # [B, T_hist, 13]
+        act_logits = x_hosts[:, :, :, :2].argmax(dim=-1)
+        comp_logits = x_hosts[:, :, :, 2:].argmax(dim=-1)
 
-        host_ids = torch.arange(self.num_hosts, device=device).unsqueeze(0).unsqueeze(0) # [1, 1, 13]
-        subnet_ids = self.host_subnet_ids.unsqueeze(0).unsqueeze(0)                     # [1, 1, 13]
+        host_ids = torch.arange(self.num_hosts, device=device).unsqueeze(0).unsqueeze(0)
+        subnet_ids = self.host_subnet_ids.unsqueeze(0).unsqueeze(0)
 
-        e_host = self.host_id_emb(host_ids).expand(B, T_hist, -1, -1)
-        e_sub = self.subnet_id_emb(subnet_ids).expand(B, T_hist, -1, -1)
-        e_act = self.activity_emb(act_logits)
-        e_comp = self.compromise_emb(comp_logits)
+        e_host: torch.Tensor = self.host_id_emb(host_ids).expand(B, T_hist, -1, -1)
+        e_sub: torch.Tensor = self.subnet_id_emb(subnet_ids).expand(B, T_hist, -1, -1)
+        e_act: torch.Tensor = self.activity_emb(act_logits)
+        e_comp: torch.Tensor = self.compromise_emb(comp_logits)
 
         if host_known_mask is not None:
             mask_long = host_known_mask.long()
             if mask_long.dim() == 2:
                 mask_long = mask_long.unsqueeze(1).expand(-1, T_hist, -1)
-            e_vis = self.visibility_emb(mask_long)
+            e_vis: torch.Tensor = self.visibility_emb(mask_long)
         else:
             e_vis = self.visibility_emb(torch.ones((B, T_hist, self.num_hosts), device=device, dtype=torch.long))
 
-        # Concatenate embeddings and fuse with MLP
-        cat_embs = torch.cat([e_host, e_sub, e_act, e_comp, e_vis], dim=-1) # [B, T_hist, 13, 5 * D]
-        fused = self.fusion_mlp(cat_embs)                                  # [B, T_hist, 13, D]
+        cat_embs = torch.cat([e_host, e_sub, e_act, e_comp, e_vis], dim=-1)
+        fused: torch.Tensor = self.fusion_mlp(cat_embs)
 
-        # Add relative time embeddings
-        t_ids = torch.arange(T_hist, device=device).unsqueeze(0).unsqueeze(2) # [1, T_hist, 1]
-        e_time = self.time_emb(t_ids)
-        tokens = fused + e_time                                            # [B, T_hist, 13, D]
+        t_ids_1d = torch.arange(T_hist, device=device)
+        t_ids = t_ids_1d.unsqueeze(0).unsqueeze(2)
+        e_time: torch.Tensor = self.time_emb(t_ids)
+        tokens = fused + e_time
 
-        # Reshape to sequence: [B, T_hist * 13, D]
         seq_tokens = tokens.view(B, T_hist * self.num_hosts, self.hidden_dim)
 
-        # Append regularization token
-        reg = self.reg_token.expand(B, -1, -1)                              # [B, 1, D]
-        seq_tokens = torch.cat([seq_tokens, reg], dim=1)                   # [B, T_hist * 13 + 1, D]
+        reg = self.reg_token.expand(B, -1, -1)
+        seq_tokens = torch.cat([seq_tokens, reg], dim=1)
 
-        out = self.transformer(seq_tokens)
+        out: torch.Tensor = self.transformer(seq_tokens)
         out = self.norm(out)
 
-        # Return host tokens: [B, T_hist, 13, hidden_dim]
-        host_out = out[:, :-1, :].view(B, T_hist, self.num_hosts, self.hidden_dim)
-        return host_out
+        global_token = out[:, -1, :]
+        host_out = out[:, :-1, :]
+
+        if not return_context_tokens:
+            return host_out.view(B, T_hist, self.num_hosts, self.hidden_dim)
+
+        total_L = T_hist * self.num_hosts
+        padding_mask = torch.zeros((B, total_L), device=device, dtype=torch.bool)
+        time_ids = t_ids_1d.repeat_interleave(self.num_hosts).unsqueeze(0).expand(B, -1)
+        entity_ids = torch.arange(self.num_hosts, device=device).repeat(T_hist).unsqueeze(0).expand(B, -1)
+        token_type_ids = torch.full((B, total_L), TokenType.HOST, device=device, dtype=torch.long)
+
+        vis_mask = None
+        if host_known_mask is not None:
+            v = host_known_mask
+            if v.dim() == 2:
+                v = v.unsqueeze(1).expand(-1, T_hist, -1)
+            vis_mask = v.reshape(B, total_L).bool()
+
+        ctx = ContextTokens(
+            tokens=host_out,
+            padding_mask=padding_mask,
+            visibility_mask=vis_mask,
+            time_ids=time_ids,
+            entity_ids=entity_ids,
+            token_type_ids=token_type_ids,
+            global_token=global_token,
+            metadata={"history_len": T_hist, "num_hosts": self.num_hosts},
+        )
+        ctx.validate()
+        return ctx
+
+    def forward(
+        self,
+        flat_obs: torch.Tensor,
+        host_known_mask: torch.Tensor | None = None,
+    ) -> ContextTokens | torch.Tensor:
+        return self.encode_context(flat_obs, host_known_mask=host_known_mask, return_context_tokens=True)

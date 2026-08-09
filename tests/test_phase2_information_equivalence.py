@@ -1,5 +1,5 @@
 """
-Information Equivalence & Temporal Order Preservation Unit Tests for Cyber-JEPA Phase 2.
+Information Equivalence & Temporal Order Preservation Unit Tests for Cyber-JEPA Phase 2 & 3.
 
 Verifies:
 1. All 4 candidate representations originate from the same underlying 52-dim observation values.
@@ -10,6 +10,7 @@ Verifies:
 
 import torch
 
+from cyber_jepa.models.context import ContextTokens
 from cyber_jepa.representations.canonical import CanonicalHostExtractor
 from cyber_jepa.representations.feature import FeatureTokenRepresentation
 from cyber_jepa.representations.flat import FlatVectorRepresentation
@@ -19,7 +20,7 @@ from cyber_jepa.representations.flat_ablations import (
     FlatShuffledTimeRepresentation,
     FlatVariableHistoryRepresentation,
 )
-from cyber_jepa.representations.hierarchical import HierarchicalHostSubnetRepresentation
+from cyber_jepa.representations.hierarchical import HierarchicalHostSubnetRepresentation, HierarchicalOutput
 from cyber_jepa.representations.host import HostTokenRepresentation
 
 
@@ -31,22 +32,23 @@ def test_representation_information_equivalence():
 
     # 1. Flat vector
     flat_model = FlatVectorRepresentation(obs_dim=D, hidden_dim=64)
-    out_flat = flat_model(raw_obs)
+    out_flat = flat_model.encode_context(raw_obs, return_context_tokens=False)
     assert out_flat.shape == (B, 64)
 
     # 2. Feature tokens
     feat_model = FeatureTokenRepresentation(num_features=D, hidden_dim=64)
-    out_feat = feat_model(raw_obs)
+    out_feat = feat_model.encode_context(raw_obs, return_context_tokens=False)
     assert out_feat.shape == (B, T_hist, D, 64)
 
     # 3. Host tokens
     host_model = HostTokenRepresentation(num_hosts=13, hidden_dim=64)
-    out_host = host_model(raw_obs)
+    out_host = host_model.encode_context(raw_obs, return_context_tokens=False)
     assert out_host.shape == (B, T_hist, 13, 64)
 
     # 4. Hierarchical tokens
     hier_model = HierarchicalHostSubnetRepresentation(num_hosts=13, num_subnets=3, hidden_dim=64)
-    out_hier = hier_model(raw_obs)
+    out_hier = hier_model.encode_context(raw_obs, return_context_tokens=False)
+    assert isinstance(out_hier, HierarchicalOutput)
     assert out_hier.global_token.shape == (B, 64)
     assert out_hier.host_tokens.shape == (B, T_hist, 13, 64)
     assert out_hier.subnet_tokens.shape == (B, T_hist, 3, 64)
@@ -87,15 +89,22 @@ def test_flat_ablations_forward_shapes():
     x = torch.randn(B, T_hist, D)
 
     m_shuf_time = FlatShuffledTimeRepresentation(history_len=4)
-    assert m_shuf_time(x).shape == (B, 64)
+    out1 = m_shuf_time(x)
+    val1 = out1.global_token if isinstance(out1, ContextTokens) else out1
+    assert val1.shape == (B, 64)
 
     m_shuf_feat = FlatShuffledFeaturesRepresentation(history_len=4)
-    assert m_shuf_feat(x).shape == (B, 64)
+    out2 = m_shuf_feat(x)
+    val2 = out2.global_token if isinstance(out2, ContextTokens) else out2
+    assert val2.shape == (B, 64)
 
     m_current = FlatCurrentOnlyRepresentation()
-    assert m_current(x).shape == (B, 64)
+    out3 = m_current(x)
+    val3 = out3.global_token if isinstance(out3, ContextTokens) else out3
+    assert val3.shape == (B, 64)
 
     m_v8 = FlatVariableHistoryRepresentation(history_len=8)
-    # Input with 8 timesteps
     x8 = torch.randn(B, 8, D)
-    assert m_v8(x8).shape == (B, 64)
+    out4 = m_v8(x8)
+    val4 = out4.global_token if isinstance(out4, ContextTokens) else out4
+    assert val4.shape == (B, 64)

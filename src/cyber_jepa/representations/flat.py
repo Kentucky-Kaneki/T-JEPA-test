@@ -5,8 +5,11 @@ Encodes 52-dim flat vector observations across history timesteps into network-le
 using per-timestep MLP projection, relative time embeddings, and temporal Transformer attention.
 """
 
+from typing import Any, cast
 import torch
 import torch.nn as nn
+
+from cyber_jepa.models.context import ContextTokens, TokenType
 
 
 class FlatVectorRepresentation(nn.Module):
@@ -53,10 +56,15 @@ class FlatVectorRepresentation(nn.Module):
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         self.norm = nn.LayerNorm(hidden_dim)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def encode_context(
+        self,
+        x: torch.Tensor,
+        host_known_mask: torch.Tensor | None = None,
+        return_context_tokens: bool = True,
+    ) -> ContextTokens | torch.Tensor:
         """
         Input: x of shape [B, T_hist, 52]
-        Output: global network latent [B, hidden_dim]
+        Returns: ContextTokens dataclass containing tokens [B, T_hist, D] and global_token [B, D]
         """
         B, T_hist, D = x.shape
         device = x.device
@@ -70,12 +78,38 @@ class FlatVectorRepresentation(nn.Module):
 
         # Append functional regularization token
         reg_tokens = self.reg_token.expand(B, -1, -1) # [B, 1, hidden_dim]
-        tokens = torch.cat([tokens, reg_tokens], dim=1) # [B, T_hist + 1, hidden_dim]
+        seq_tokens = torch.cat([tokens, reg_tokens], dim=1) # [B, T_hist + 1, hidden_dim]
 
         # Temporal Transformer
-        out = self.transformer(tokens)
+        out = self.transformer(seq_tokens)
         out = self.norm(out)
 
-        # Global network representation from regularization token
         global_latent = out[:, -1, :] # [B, hidden_dim]
-        return global_latent
+        flat_tokens = out[:, :-1, :]  # [B, T_hist, hidden_dim]
+
+        if not return_context_tokens:
+            return cast(torch.Tensor, global_latent)
+
+        padding_mask = torch.zeros((B, T_hist), device=device, dtype=torch.bool)
+        entity_ids = torch.zeros((B, T_hist), device=device, dtype=torch.long)
+        token_type_ids = torch.full((B, T_hist), TokenType.TEMPORAL_FLAT, device=device, dtype=torch.long)
+
+        ctx = ContextTokens(
+            tokens=flat_tokens,
+            padding_mask=padding_mask,
+            visibility_mask=None,
+            time_ids=time_ids,
+            entity_ids=entity_ids,
+            token_type_ids=token_type_ids,
+            global_token=global_latent,
+            metadata={"history_len": T_hist, "obs_dim": D},
+        )
+        ctx.validate()
+        return ctx
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        host_known_mask: torch.Tensor | None = None,
+    ) -> ContextTokens | torch.Tensor:
+        return self.encode_context(x, host_known_mask=host_known_mask, return_context_tokens=True)
