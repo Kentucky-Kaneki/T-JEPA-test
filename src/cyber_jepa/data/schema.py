@@ -2,7 +2,7 @@
 Data contracts and schema definitions for CybORG Cyber-JEPA.
 
 Strict dataclass contracts enforcing zero simulator leakage, explicit unknown/visibility
-encoding, and unambiguous state/action representations.
+encoding, canonical transition representations, and sidecar oracle linkage.
 """
 
 from dataclasses import dataclass, field
@@ -34,6 +34,26 @@ SCENARIO1B_SUBNET_SLOTS = [
     "Enterprise",
     "Operational",
     "User",
+]
+
+# Fixed Action Types mapping to integer IDs (0..15)
+SCENARIO1B_ACTION_TYPES = [
+    "Sleep",
+    "Monitor",
+    "Analyse",
+    "Remove",
+    "Restore",
+    "DecoyDefender",
+    "DecoyEnterprise0",
+    "DecoyEnterprise1",
+    "DecoyEnterprise2",
+    "DecoyOp_Host0",
+    "DecoyOp_Host1",
+    "DecoyOp_Host2",
+    "DecoyOp_Server0",
+    "DecoyUser0",
+    "DecoyUser1",
+    "DecoyUser2",
 ]
 
 
@@ -79,14 +99,36 @@ class ActionSpec:
     target_subnet: str                       # subnet or UNKNOWN/NONE
     parameters: dict[str, Any]
     is_valid: bool = True
+    action_type_id: int = 0
+    target_host_id: int = 0
+    target_subnet_id: int = 0
+
+    def __post_init__(self) -> None:
+        if self.action_type in SCENARIO1B_ACTION_TYPES:
+            self.action_type_id = SCENARIO1B_ACTION_TYPES.index(self.action_type)
+        else:
+            self.action_type_id = 0
+
+        if self.target_host in SCENARIO1B_HOST_SLOTS:
+            self.target_host_id = SCENARIO1B_HOST_SLOTS.index(self.target_host) + 1
+        else:
+            self.target_host_id = 0 # 0 for NONE / UNKNOWN
+
+        if self.target_subnet in SCENARIO1B_SUBNET_SLOTS:
+            self.target_subnet_id = SCENARIO1B_SUBNET_SLOTS.index(self.target_subnet) + 1
+        else:
+            self.target_subnet_id = 0 # 0 for NONE / UNKNOWN
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "discrete_index": self.discrete_index,
             "action_type": self.action_type,
+            "action_type_id": self.action_type_id,
             "target_kind": self.target_kind,
             "target_host": self.target_host,
+            "target_host_id": self.target_host_id,
             "target_subnet": self.target_subnet,
+            "target_subnet_id": self.target_subnet_id,
             "parameters": self.parameters,
             "is_valid": self.is_valid,
         }
@@ -106,18 +148,41 @@ class OracleLabels:
 
 @dataclass
 class Transition:
-    """Single-step environment transition contract (Section 4.3)."""
+    """Single-step environment transition contract (Phase 2 canonical schema)."""
     dataset_id: str
     episode_id: str
     transition_id: str
-    t: int
-    collection_seed: int
-    scenario_name: str
-    scenario_hash: str
-    red_policy: str
-    blue_policy: str
-    obs: BlueObservation
-    action: ActionSpec
-    reward: float
-    next_obs: BlueObservation
-    done: bool
+    seed: int
+    step_index: int
+    terminated: bool
+    truncated: bool
+    flat_obs: list[float]                    # 52-dim
+    next_flat_obs: list[float]               # 52-dim
+    host_features: list[dict[str, Any]]      # 13 host dicts
+    next_host_features: list[dict[str, Any]] # 13 host dicts
+    known_host_mask: list[bool]              # 13 bools
+    next_known_host_mask: list[bool]         # 13 bools
+    blue_events: list[dict[str, Any]]
+    action_discrete_index: int
+    action_type: str
+    action_type_id: int
+    host_target: str
+    host_target_id: int
+    subnet_target: str
+    subnet_target_id: int
+    action_parameters: dict[str, Any]
+    action_valid: bool
+    reward: float                            # Diagnostics only
+    oracle_transition_id: str                # Link to sidecar
+    scenario_name: str = "Scenario1b"
+    scenario_hash: str = ""
+    red_policy: str = "bline"
+    blue_policy: str = "random"
+    obs: BlueObservation | None = None
+    action: ActionSpec | None = None
+    next_obs: BlueObservation | None = None
+    done: bool = False
+
+    @property
+    def t(self) -> int:
+        return self.step_index

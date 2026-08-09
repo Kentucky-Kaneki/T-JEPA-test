@@ -110,15 +110,20 @@ class CyberJEPADataset(Dataset):
                     target_idx = group_indices[idx + self.horizon]
                     action_idx_range = group_indices[idx : idx + self.horizon]
 
+                    act_col = "action_discrete_index" if "action_discrete_index" in group.columns else "action_idx"
+                    t_col = "step_index" if "step_index" in group.columns else "t"
+
                     # Verify no episode boundary breaks
                     hist_flats = flats[hist_idx_range]                # [4, 52]
                     target_flat = flats[target_idx]                   # [52]
-                    action_seq = group.loc[action_idx_range, "action_idx"].values.tolist()
+                    action_seq = group.loc[action_idx_range, act_col].values.tolist()
+                    t_ctx = int(group.loc[group_indices[idx], t_col])
+                    t_tgt = int(group.loc[target_idx, t_col])
 
                     self.samples.append({
                         "episode_id": ep_id,
-                        "t_context": group.loc[group_indices[idx], "t"],
-                        "t_target": group.loc[target_idx, "t"],
+                        "t_context": t_ctx,
+                        "t_target": t_tgt,
                         "history_flat": torch.tensor(hist_flats, dtype=torch.float32),
                         "action_seq": torch.tensor(action_seq, dtype=torch.long),
                         "target_flat": torch.tensor(target_flat, dtype=torch.float32),

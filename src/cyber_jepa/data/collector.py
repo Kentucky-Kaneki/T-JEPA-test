@@ -68,7 +68,6 @@ def collect_shard(
     output_dir: Path | None = None,
 ) -> tuple[list[Transition], list[OracleLabels], dict[str, Any]]:
     """Collect trajectory transitions for one Red x Blue x Seed shard."""
-    # Independent seeding
     random.seed(seed)
     np.random.seed(seed)
 
@@ -89,9 +88,11 @@ def collect_shard(
         ep_id = f"ep_{seed}_{ep:03d}"
         ep_seed = seed + ep
 
-        # Reset simulator once per episode
-        obs, oracle = mux.reset(seed=ep_seed)
-        oracle_labels.append(oracle)
+        # Reset simulator ONCE per episode
+        obs0, oracle0 = mux.reset(seed=ep_seed, episode_id=ep_id)
+        oracle_labels.append(oracle0)
+
+        current_obs = obs0
 
         for t in range(1, max_steps + 1):
             trans_id = f"{ep_id}_t{t:02d}"
@@ -111,30 +112,46 @@ def collect_shard(
                 action=action_idx,
                 episode_id=ep_id,
             )
-            next_oracle.transition_id = trans_id
             oracle_labels.append(next_oracle)
 
             trans = Transition(
                 dataset_id=dataset_id,
                 episode_id=ep_id,
                 transition_id=trans_id,
-                t=t,
-                collection_seed=seed,
+                seed=ep_seed,
+                step_index=t,
+                terminated=done and t < max_steps,
+                truncated=done and t >= max_steps,
+                flat_obs=list(current_obs.flat),
+                next_flat_obs=list(next_obs.flat),
+                host_features=current_obs.host_features,
+                next_host_features=next_obs.host_features,
+                known_host_mask=list(current_obs.host_known_mask),
+                next_known_host_mask=list(next_obs.host_known_mask),
+                blue_events=next_obs.blue_events,
+                action_discrete_index=act_spec.discrete_index,
+                action_type=act_spec.action_type,
+                action_type_id=act_spec.action_type_id,
+                host_target=act_spec.target_host,
+                host_target_id=act_spec.target_host_id,
+                subnet_target=act_spec.target_subnet,
+                subnet_target_id=act_spec.target_subnet_id,
+                action_parameters=act_spec.parameters,
+                action_valid=act_spec.is_valid,
+                reward=reward,
+                oracle_transition_id=trans_id,
                 scenario_name="Scenario1b",
                 scenario_hash=scenario_hash,
                 red_policy=red_policy,
                 blue_policy=blue_policy,
-                obs=obs,
+                obs=current_obs,
                 action=act_spec,
-                reward=reward,
                 next_obs=next_obs,
                 done=done,
             )
             transitions.append(trans)
 
-            # Advance current obs to next_obs
-            obs = next_obs
-
+            current_obs = next_obs
             if done:
                 break
 
@@ -148,9 +165,21 @@ def collect_shard(
         "requested_episodes": episodes,
         "max_steps": max_steps,
         "num_transitions": len(transitions),
+        "num_oracle_records": len(oracle_labels),
     }
 
     if output_dir is not None:
-        DatasetStorageManager.save_shard(output_dir, transitions, oracle_labels, manifest)
+        if output_dir.name.startswith("shard"):
+            shard_dir = output_dir
+        else:
+            shard_dir = output_dir / f"shard_{red_policy}_{blue_policy}_{seed}"
+
+        checksums = DatasetStorageManager.save_shard(
+            shard_dir=shard_dir,
+            transitions=transitions,
+            oracle_labels=oracle_labels,
+            manifest=manifest,
+        )
+        manifest["checksums"] = checksums
 
     return transitions, oracle_labels, manifest

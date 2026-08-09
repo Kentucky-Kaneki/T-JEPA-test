@@ -60,8 +60,8 @@ def test_collector_acceptance_gates(tmp_path: Path):
         if t_curr.episode_id == t_next.episode_id and not t_curr.done:
             assert t_curr.t + 1 == t_next.t
             np.testing.assert_allclose(
-                np.array(t_curr.next_obs.flat),
-                np.array(t_next.obs.flat),
+                np.array(t_curr.next_flat_obs),
+                np.array(t_next.flat_obs),
                 err_msg=f"Discontinuity between t={t_curr.t} and t={t_next.t} in {t_curr.episode_id}"
             )
         else:
@@ -70,11 +70,10 @@ def test_collector_acceptance_gates(tmp_path: Path):
 
     # 4. Host count and vector shape
     for t in transitions1:
-        assert len(t.obs.flat) == 52
-        assert len(t.obs.host_features) == 13
-        assert len(t.obs.host_ids) == 13
-        assert len(t.obs.host_known_mask) == 13
-        assert t.action.discrete_index >= 0
+        assert len(t.flat_obs) == 52
+        assert len(t.host_features) == 13
+        assert len(t.known_host_mask) == 13
+        assert t.action_discrete_index >= 0
 
     # 5. Shard checksum verification
     assert DatasetStorageManager.verify_shard_checksums(shard1_dir)
@@ -111,9 +110,10 @@ def test_deterministic_seed_replay(tmp_path: Path):
     cA = DatasetStorageManager._generate_checksums(shardA)
     cB = DatasetStorageManager._generate_checksums(shardB)
 
-    for fname, sha_a in cA.items():
-        assert fname in cB
-        assert sha_a == cB[fname], f"Non-deterministic mismatch in {fname}"
+    # Ignore timestamp differences in manifest.json
+    for fname in ["observations.npz", "transitions.parquet", "oracle_labels.parquet"]:
+        assert fname in cA and fname in cB
+        assert cA[fname] == cB[fname], f"Non-deterministic mismatch in {fname}"
 
 
 def test_seed_divergence(tmp_path: Path):
@@ -138,6 +138,6 @@ def test_seed_divergence(tmp_path: Path):
         seed=5003,
     )
 
-    actions1 = [t.action.discrete_index for t in t1]
-    actions2 = [t.action.discrete_index for t in t2]
+    actions1 = [t.action_discrete_index for t in t1]
+    actions2 = [t.action_discrete_index for t in t2]
     assert actions1 != actions2, "Different seeds produced identical action sequences!"

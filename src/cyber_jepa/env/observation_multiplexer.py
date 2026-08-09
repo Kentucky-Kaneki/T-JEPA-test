@@ -10,7 +10,7 @@ from typing import Any, Union
 import numpy as np
 
 from CybORG import CybORG
-from CybORG.Agents.Wrappers import ChallengeWrapper, BlueTableWrapper
+from CybORG.Agents.Wrappers import ChallengeWrapper
 from CybORG.Agents import B_lineAgent, RedMeanderAgent
 from CybORG.Simulator.Scenarios import FileReaderScenarioGenerator
 
@@ -51,34 +51,43 @@ class ObservationMultiplexer:
         sg = FileReaderScenarioGenerator(scenario_path)
         self.cyborg = CybORG(scenario_generator=sg, agents={"Red": red_agent}, seed=seed)
 
-        # Helper wrappers for pure view conversions (never stepped independently)
+        # Primary challenge wrapper for official Gym vector view & single-step execution
         self._challenge_wrapper = ChallengeWrapper(env=self.cyborg, agent_name="Blue")
-        self._vector_converter = BlueTableWrapper(env=self.cyborg, output_mode="vector")
-        self._table_converter = BlueTableWrapper(env=self.cyborg, output_mode="table")
+        # Internal BlueTableWrapper for host table conversion without extra env wrapping
+        self._blue_table_wrapper = self._challenge_wrapper.env.env
 
         # Dynamic action mapper
         self.action_mapper = ActionMapper(self._challenge_wrapper.env.possible_actions)
+
+        # Instrumentation counters for strict single-step/reset verification
+        self.underlying_reset_count = 0
+        self.underlying_step_count = 0
         self.step_counter = 0
 
-    def reset(self, seed: int | None = None) -> tuple[BlueObservation, OracleLabels]:
-        """Reset underlying simulator once and return initial observation + oracle labels."""
+    def reset(self, seed: int | None = None, episode_id: str = "ep0") -> tuple[BlueObservation, OracleLabels]:
+        """Reset underlying simulator EXACTLY ONCE and return initial observation + oracle labels."""
         if seed is not None:
             self.seed = seed
 
-        # Single environment reset
-        self._challenge_wrapper.reset()
-        vec_res = self._vector_converter.reset(agent="Blue")
-        tbl_res = self._table_converter.reset(agent="Blue")
+        # Single environment reset via ChallengeWrapper
+        self.cyborg.set_seed(self.seed)
+        vec_res = self._challenge_wrapper.reset()
+        self.underlying_reset_count += 1
         self.step_counter = 0
 
         raw_obs = self.cyborg.get_observation("Blue")
+        success = raw_obs.get("success", True) if isinstance(raw_obs, dict) else True
+        tbl_res = self._blue_table_wrapper._create_blue_table(success)
+
         obs = self._derive_blue_observation(
             raw_obs,
-            flat_vec_raw=vec_res.observation,
-            table_obj=tbl_res.observation,
+            flat_vec_raw=vec_res,
+            table_obj=tbl_res,
             timestep=0,
         )
-        oracle = self._extract_oracle_labels(transition_id="t0", episode_id="ep0", timestep=0)
+
+        transition_id = f"{episode_id}_t0"
+        oracle = self._extract_oracle_labels(transition_id=transition_id, episode_id=episode_id, timestep=0)
 
         return obs, oracle
 
@@ -87,31 +96,35 @@ class ObservationMultiplexer:
         action: Union[int, ActionSpec],
         episode_id: str = "ep0",
     ) -> tuple[BlueObservation, float, ActionSpec, bool, dict[str, Any], OracleLabels]:
-        """Perform exactly ONE simulator step for the requested action."""
+        """Perform EXACTLY ONE simulator step for the requested action."""
         if isinstance(action, ActionSpec):
             action_idx = action.discrete_index
-            action_spec = action
         else:
             action_idx = action
-            action_spec = self.action_mapper.resolve(action_idx)
 
-        cyborg_action = self.action_mapper.get_action_object(action_idx)
+        action_spec = self.action_mapper.resolve(action_idx)
 
-        # EXACTLY ONE simulator step
-        result = self.cyborg.step(agent="Blue", action=cyborg_action)
+        # EXACTLY ONE simulator step via ChallengeWrapper
+        vec_obs, reward, done, info = self._challenge_wrapper.step(action=action_idx)
+        self.underlying_step_count += 1
         self.step_counter += 1
         t = self.step_counter
 
-        raw_obs = result.observation
-        reward = float(result.reward)
-        done = bool(result.done)
-        info = vars(result)
+        raw_obs = self.cyborg.get_observation("Blue")
+        success = raw_obs.get("success", True) if isinstance(raw_obs, dict) else True
+        tbl_res = self._blue_table_wrapper._create_blue_table(success)
 
-        obs = self._derive_blue_observation(raw_obs, timestep=t)
+        obs = self._derive_blue_observation(
+            raw_obs,
+            flat_vec_raw=vec_obs,
+            table_obj=tbl_res,
+            timestep=t,
+        )
+
         transition_id = f"{episode_id}_t{t}"
         oracle = self._extract_oracle_labels(transition_id=transition_id, episode_id=episode_id, timestep=t)
 
-        return obs, reward, action_spec, done, info, oracle
+        return obs, float(reward), action_spec, bool(done), info, oracle
 
     def _derive_blue_observation(
         self,
@@ -122,14 +135,10 @@ class ObservationMultiplexer:
     ) -> BlueObservation:
         """Derive flat, host-table, and event views from the single raw observation."""
 
-        # 1. Flat 52-dim vector via pure wrapper conversion
-        if flat_vec_raw is None:
-            flat_vec_raw = self._vector_converter.observation_change("Blue", raw_obs)
+        # 1. Flat 52-dim vector
         flat_list = [float(x) for x in flat_vec_raw]
 
-        # 2. Table view via pure wrapper conversion
-        if table_obj is None:
-            table_obj = self._table_converter.observation_change("Blue", raw_obs)
+        # 2. Table view
         table_rows = self._extract_table_rows(table_obj)
 
         # Build host map from table rows

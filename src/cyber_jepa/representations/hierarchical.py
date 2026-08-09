@@ -5,11 +5,21 @@ Combines host tokens with explicit subnet tokens and global network tokens using
 attention hierarchy:
 Stage 1: Host tokens attend within their subnets to update subnet tokens.
 Stage 2: Subnet tokens and global network token attend globally.
+Exposes a typed HierarchicalOutput dataclass.
 """
 
+from dataclasses import dataclass
 import torch
 import torch.nn as nn
 from cyber_jepa.representations.host import HostTokenRepresentation
+
+
+@dataclass
+class HierarchicalOutput:
+    """Typed output structure for HierarchicalHostSubnetRepresentation."""
+    host_tokens: torch.Tensor                # [B, T_hist, 13, hidden_dim]
+    subnet_tokens: torch.Tensor              # [B, T_hist, 3, hidden_dim]
+    global_token: torch.Tensor               # [B, hidden_dim]
 
 
 class HierarchicalHostSubnetRepresentation(nn.Module):
@@ -79,13 +89,10 @@ class HierarchicalHostSubnetRepresentation(nn.Module):
         self,
         flat_obs: torch.Tensor,
         host_known_mask: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> HierarchicalOutput:
         """
         Input: flat_obs [B, T_hist, 52]
-        Returns:
-            host_tokens: [B, T_hist, 13, hidden_dim]
-            subnet_tokens: [B, T_hist, 3, hidden_dim]
-            global_token: [B, hidden_dim]
+        Returns: HierarchicalOutput typed structure
         """
         B, T_hist, D = flat_obs.shape[0], flat_obs.shape[1], flat_obs.shape[2]
         device = flat_obs.device
@@ -118,4 +125,8 @@ class HierarchicalHostSubnetRepresentation(nn.Module):
         subnet_out = torch.cat(sub_tokens_list, dim=1) # [B, T_hist, 3, D]
         global_out = global_tokens_list[-1]            # Latest timestep global token [B, D]
 
-        return host_out, subnet_out, global_out
+        return HierarchicalOutput(
+            host_tokens=host_out,
+            subnet_tokens=subnet_out,
+            global_token=global_out,
+        )

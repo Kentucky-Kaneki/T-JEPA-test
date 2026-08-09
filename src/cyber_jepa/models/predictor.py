@@ -1,90 +1,178 @@
 """
-Action Encoder and Latent Predictor for Cyber-JEPA.
+Action-Conditioned Transformer Predictor & Target Query Granularity Interface for Cyber-JEPA.
 
-ActionEncoder embeds defensive action sequences a_{t:t+k-1} across future offsets.
-LatentPredictor predicts target latent representations given context tokens, action sequence,
-and target query specification using Layer-Normalized Smooth L1 loss.
+Takes encoded context representation z_t and K sequence of action tokens,
+using cross-attention or causal self-attention over horizon sequence [1..K].
+Exposes TargetSpec query interface for predicting feature, host, subnet, or network targets.
 """
 
+from dataclasses import dataclass
 from typing import Any
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+
+def compute_jepa_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    """Layer-Normalized Smooth L1 JEPA Loss."""
+    norm_pred = nn.functional.layer_norm(pred, pred.shape[-1:])
+    norm_target = nn.functional.layer_norm(target, target.shape[-1:])
+    return nn.functional.smooth_l1_loss(norm_pred, norm_target)
+
+
+@dataclass
+class TargetSpec:
+    """Target Granularity Query Specification (Phase 5 Contract)."""
+    horizon: int                             # k in 1..K
+    granularity: str                         # 'feature', 'host', 'subnet', 'network'
+    target_id: int                           # Entity index (0..12 for host, 0..2 for subnet, 0 for network)
+    valid_mask: torch.Tensor | None = None   # Boolean validity mask
 
 
 class ActionEncoder(nn.Module):
-    """Embeds defensive actions (type, target host, target subnet, future offset)."""
+    """Categorical & Structural Action Encoder (Phase 6 Contract)."""
+
+    type_map: torch.Tensor
+    host_map: torch.Tensor
+    subnet_map: torch.Tensor
 
     def __init__(
         self,
         num_action_types: int = 16,
-        num_hosts: int = 13,
-        num_subnets: int = 3,
-        hidden_dim: int = 64,
+        num_hosts: int = 14,                # 0=NONE, 1..13=hosts
+        num_subnets: int = 4,               # 0=NONE, 1..3=subnets
         max_horizon: int = 16,
+        hidden_dim: int = 64,
     ):
         super().__init__()
+        self.num_action_types = num_action_types
+        self.num_hosts = num_hosts
+        self.num_subnets = num_subnets
+        self.max_horizon = max_horizon
         self.hidden_dim = hidden_dim
 
-        self.action_type_emb = nn.Embedding(num_action_types, hidden_dim)
-        self.target_host_emb = nn.Embedding(num_hosts + 1, hidden_dim)   # +1 for NONE
-        self.target_subnet_emb = nn.Embedding(num_subnets + 1, hidden_dim) # +1 for NONE
-        self.offset_emb = nn.Embedding(max_horizon, hidden_dim)
+        self.type_emb = nn.Embedding(num_action_types, hidden_dim)
+        self.host_emb = nn.Embedding(num_hosts, hidden_dim)
+        self.subnet_emb = nn.Embedding(num_subnets, hidden_dim)
+        self.pos_emb = nn.Embedding(max_horizon, hidden_dim)
+        self.valid_emb = nn.Embedding(2, hidden_dim)
 
-        self.mlp = nn.Sequential(
-            nn.Linear(hidden_dim * 4, hidden_dim * 2),
-            nn.LayerNorm(hidden_dim * 2),
+        self.proj = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
             nn.GELU(),
-            nn.Linear(hidden_dim * 2, hidden_dim),
+            nn.Linear(hidden_dim, hidden_dim),
         )
+
+        # Build 66-element Scenario1b action mapping lookup buffers
+        type_ids, host_ids, subnet_ids = self._build_scenario1b_action_tables()
+        self.register_buffer("type_map", torch.tensor(type_ids, dtype=torch.long))
+        self.register_buffer("host_map", torch.tensor(host_ids, dtype=torch.long))
+        self.register_buffer("subnet_map", torch.tensor(subnet_ids, dtype=torch.long))
+
+    def _build_scenario1b_action_tables(self) -> tuple[list[int], list[int], list[int]]:
+        """Build deterministic lookup tables for discrete action indices 0..65."""
+        from cyber_jepa.env.action_mapper import ActionMapper
+        # Standard Scenario1b 66-action mapping definition
+        types = [0]*66
+        hosts = [0]*66
+        subnets = [0]*66
+
+        # Fill via semantic rules matching ActionMapper
+        types[0] = 0; hosts[0] = 0; subnets[0] = 0 # Sleep
+        types[1] = 1; hosts[1] = 0; subnets[1] = 0 # Monitor
+
+        # 2..17 Analyse
+        for idx in range(2, 18):
+            types[idx] = 2
+            if idx <= 14:
+                hosts[idx] = (idx - 2) + 1 # 1..13
+            else:
+                hosts[idx] = 0 # Router
+
+        # 18..33 Remove
+        for idx in range(18, 34):
+            types[idx] = 3
+            if idx <= 30:
+                hosts[idx] = (idx - 18) + 1
+            else:
+                hosts[idx] = 0
+
+        # 34..49 Misinform / Decoy
+        for idx in range(34, 50):
+            types[idx] = 0
+            if idx <= 46:
+                hosts[idx] = (idx - 34) + 1
+            else:
+                hosts[idx] = 0
+
+        # 50..65 Restore
+        for idx in range(50, 66):
+            types[idx] = 4
+            if idx <= 62:
+                hosts[idx] = (idx - 50) + 1
+            else:
+                hosts[idx] = 0
+
+        return types, hosts, subnets
 
     def forward(
         self,
-        action_indices: torch.Tensor,       # [B, k] discrete action indices
-        action_types: torch.Tensor | None = None, # [B, k] optional discrete action type IDs
-        target_hosts: torch.Tensor | None = None, # [B, k] optional host IDs
-        target_subnets: torch.Tensor | None = None,# [B, k] optional subnet IDs
+        actions: torch.Tensor,               # [B, K] discrete indices OR [B, K, 3] categorical IDs
+        valid_mask: torch.Tensor | None = None, # [B, K] bool
     ) -> torch.Tensor:
-        """
-        Input: action_indices [B, k]
-        Output: action tokens [B, k, hidden_dim]
-        """
-        B, K = action_indices.shape
-        device = action_indices.device
+        """Returns action tokens [B, K, hidden_dim]."""
+        B, K = actions.shape[0], actions.shape[1]
+        device = actions.device
 
-        # Default fallback embeddings if specific field IDs not passed
-        act_type_ids = action_types if action_types is not None else (action_indices % 16)
-        host_ids = target_hosts if target_hosts is not None else torch.zeros((B, K), device=device, dtype=torch.long)
-        sub_ids = target_subnets if target_subnets is not None else torch.zeros((B, K), device=device, dtype=torch.long)
-        offset_ids = torch.arange(K, device=device).unsqueeze(0).expand(B, -1) # [B, k]
+        if actions.dim() == 2:
+            # Discrete indices [B, K] -> deterministic lookup table
+            act_idx = torch.clamp(actions, 0, 65)
+            type_ids = self.type_map[act_idx]
+            host_ids = self.host_map[act_idx]
+            subnet_ids = self.subnet_map[act_idx]
+        elif actions.dim() == 3 and actions.shape[2] >= 3:
+            type_ids = actions[:, :, 0]
+            host_ids = actions[:, :, 1]
+            subnet_ids = actions[:, :, 2]
+        else:
+            raise ValueError(f"Invalid actions shape: {actions.shape}")
 
-        e_act = self.action_type_emb(act_type_ids)
-        e_host = self.target_host_emb(host_ids)
-        e_sub = self.target_subnet_emb(sub_ids)
-        e_off = self.offset_emb(offset_ids)
+        pos = torch.arange(K, device=device).unsqueeze(0).expand(B, K)
+        if valid_mask is None:
+            valid_ids = torch.ones((B, K), device=device, dtype=torch.long)
+        else:
+            valid_ids = valid_mask.to(torch.long)
 
-        cat_emb = torch.cat([e_act, e_host, e_sub, e_off], dim=-1) # [B, k, 4 * D]
-        act_tokens = self.mlp(cat_emb)                             # [B, k, D]
-        return act_tokens
+        t_e = self.type_emb(type_ids)
+        h_e = self.host_emb(host_ids)
+        s_e = self.subnet_emb(subnet_ids)
+        p_e = self.pos_emb(pos)
+        v_e = self.valid_emb(valid_ids)
+
+        token = t_e + h_e + s_e + p_e + v_e
+        return self.proj(token) # [B, K, hidden_dim]
 
 
 class LatentPredictor(nn.Module):
-    """Predicts target latent z_{t+k} from context tokens and future action sequence."""
+    """Transformer Predictor mapping z_t and action sequence to target queries z_{t+k}."""
 
     def __init__(
         self,
         hidden_dim: int = 64,
         num_heads: int = 4,
-        num_layers: int = 2,
+        num_layers: int = 3,
         ffn_dim: int = 256,
+        max_horizon: int = 16,
     ):
         super().__init__()
         self.hidden_dim = hidden_dim
+        self.max_horizon = max_horizon
 
-        # Target query token
-        self.target_query_token = nn.Parameter(torch.randn(1, 1, hidden_dim) * 0.02)
+        self.action_encoder = ActionEncoder(hidden_dim=hidden_dim, max_horizon=max_horizon)
 
-        # Predictor Transformer Encoder
+        # Target Granularity Embeddings (Phase 5)
+        self.granularity_emb = nn.Embedding(4, hidden_dim) # 0=feature, 1=host, 2=subnet, 3=network
+        self.entity_emb = nn.Embedding(16, hidden_dim)      # 0..15 entity index
+
+        # Transformer Predictor
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=hidden_dim,
             nhead=num_heads,
@@ -96,46 +184,61 @@ class LatentPredictor(nn.Module):
         )
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         self.norm = nn.LayerNorm(hidden_dim)
-        self.pred_head = nn.Linear(hidden_dim, hidden_dim)
+        self.head = nn.Linear(hidden_dim, hidden_dim)
 
     def forward(
         self,
-        context_tokens: torch.Tensor,       # [B, N_ctx, hidden_dim] or [B, hidden_dim]
-        action_tokens: torch.Tensor,        # [B, k, hidden_dim]
+        z_t: torch.Tensor,                   # [B, hidden_dim] OR [B, T_hist, hidden_dim]
+        actions: torch.Tensor,               # [B, K] discrete action indices
+        target_spec: TargetSpec | None = None,
     ) -> torch.Tensor:
         """
-        Predicts future latent representation.
-        Returns: predicted latent z_hat [B, hidden_dim]
+        Predict z_{t+k} given context z_t and action sequence.
+        Returns predicted latent [B, K, hidden_dim] or single target latent [B, hidden_dim].
         """
-        B = action_tokens.shape[0]
+        B = z_t.shape[0]
+        device = z_t.device
 
-        if context_tokens.dim() == 4:
-            B, T_hist, N_ent, D = context_tokens.shape
-            ctx = context_tokens.view(B, T_hist * N_ent, D)
-        elif context_tokens.dim() == 2:
-            ctx = context_tokens.unsqueeze(1) # [B, 1, D]
+        if z_t.dim() == 3:
+            # Aggregate history tokens to context vector
+            z_t_ctx = z_t.mean(dim=1) # [B, hidden_dim]
         else:
-            ctx = context_tokens             # [B, N_ctx, D]
+            z_t_ctx = z_t
 
-        # Target query token
-        q_token = self.target_query_token.expand(B, -1, -1) # [B, 1, D]
+        # Encode actions: [B, K, hidden_dim]
+        act_tokens = self.action_encoder(actions)
+        K = act_tokens.shape[1]
 
-        # Combine context, action sequence, and query token
-        seq = torch.cat([ctx, action_tokens, q_token], dim=1) # [B, N_ctx + k + 1, D]
+        # Context token: [B, 1, hidden_dim]
+        ctx_token = z_t_ctx.unsqueeze(1)
 
-        out = self.transformer(seq)
+        # Build sequence: [ctx_token, act_1, act_2, ..., act_K]
+        seq = torch.cat([ctx_token, act_tokens], dim=1) # [B, 1+K, hidden_dim]
+
+        # Causal mask for autoregressive propagation
+        causal_mask = torch.triu(torch.ones(1 + K, 1 + K, device=device) * float('-inf'), diagonal=1)
+
+        out = self.transformer(seq, mask=causal_mask)
         out = self.norm(out)
 
-        # Prediction from query token position
-        pred = self.pred_head(out[:, -1, :]) # [B, D]
-        return pred
+        # Latent predictions for horizons 1..K: [B, K, hidden_dim]
+        pred_latents = self.head(out[:, 1:, :])
 
+        if target_spec is not None:
+            # Query target granularity & horizon k
+            k = min(target_spec.horizon, K)
+            k_idx = k - 1 # 0-indexed in pred_latents
 
-def compute_jepa_loss(pred_latent: torch.Tensor, target_latent: torch.Tensor) -> torch.Tensor:
-    """
-    Computes Layer-Normalized Smooth L1 JEPA Loss:
-    L = SmoothL1(LN(pred), stopgrad(LN(target)))
-    """
-    ln_pred = F.layer_norm(pred_latent, (pred_latent.shape[-1],))
-    ln_target = F.layer_norm(target_latent.detach(), (target_latent.shape[-1],))
-    return F.smooth_l1_loss(ln_pred, ln_target)
+            pred_k = pred_latents[:, k_idx, :] # [B, hidden_dim]
+
+            # Query conditioning
+            gran_map = {"feature": 0, "host": 1, "subnet": 2, "network": 3}
+            g_id = gran_map.get(target_spec.granularity.lower(), 3)
+
+            g_emb = self.granularity_emb(torch.tensor(g_id, device=device))
+            e_emb = self.entity_emb(torch.tensor(min(target_spec.target_id, 15), device=device))
+
+            query_conditioned = pred_k + g_emb + e_emb
+            return query_conditioned
+        else:
+            return pred_latents

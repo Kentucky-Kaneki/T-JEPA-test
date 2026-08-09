@@ -46,7 +46,8 @@ def test_hierarchical_representation_shape():
     """Verify HierarchicalHostSubnetRepresentation outputs host, subnet, and global tokens."""
     model = HierarchicalHostSubnetRepresentation(num_hosts=13, num_subnets=3, hidden_dim=64, ffn_dim=256)
     x = torch.randn(8, 4, 52)
-    host_out, sub_out, global_out = model(x)
+    out = model(x)
+    host_out, sub_out, global_out = out.host_tokens, out.subnet_tokens, out.global_token
 
     assert host_out.shape == (8, 4, 13, 64)
     assert sub_out.shape == (8, 4, 3, 64)
