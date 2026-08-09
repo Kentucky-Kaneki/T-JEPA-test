@@ -27,7 +27,7 @@ This document defines the strict, non-negotiable architectural and methodologica
 
 ## 4. Preservation of Reference Implementation
 * **Zero Destruction of Working Baselines**: Existing Adult Income T-JEPA pipeline (`data.py`, `model.py`, `trainer.py`, `downstream.py`, `run.py`) MUST remain intact and functional as a known-working reference implementation.
-* **Modular CybORG Architecture**: CybORG-specific code MUST live in dedicated directories (`cyborg/`, `docs/`, `experiments/`), ensuring baseline tabular T-JEPA and CybORG Cyber-JEPA can be compared cleanly.
+* **Modular CybORG Architecture**: CybORG-specific code MUST live in `src/cyber_jepa/` (with subpackages `env`, `data`, `representations`, `models`, `training`, and `evaluation`), ensuring baseline tabular T-JEPA and CybORG Cyber-JEPA are cleanly separated without package name collision with external `CybORG`.
 
 ---
 

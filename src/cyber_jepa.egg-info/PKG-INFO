@@ -1,0 +1,194 @@
+Metadata-Version: 2.4
+Name: cyber-jepa
+Version: 0.1.0
+Summary: Defender-Oriented Action-Conditioned JEPA World Model for CybORG
+Author: Cyber-JEPA Team
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: torch>=2.0.0
+Requires-Dist: numpy>=1.24.0
+Requires-Dist: pandas>=2.0.0
+Requires-Dist: scikit-learn>=1.3.0
+Requires-Dist: pyarrow>=12.0.0
+Requires-Dist: zstandard>=0.21.0
+Requires-Dist: pyyaml>=6.0
+Requires-Dist: tqdm>=4.65.0
+Requires-Dist: pydantic>=2.0.0
+Provides-Extra: sim
+Requires-Dist: gym<0.26.0; extra == "sim"
+Requires-Dist: prettytable>=3.0.0; extra == "sim"
+Provides-Extra: dev
+Requires-Dist: pytest>=7.4.0; extra == "dev"
+Requires-Dist: pytest-cov>=4.1.0; extra == "dev"
+Requires-Dist: ruff>=0.1.0; extra == "dev"
+Requires-Dist: mypy>=1.5.0; extra == "dev"
+
+# T-JEPA: Tabular Joint-Embedding Predictive Architecture
+
+PyTorch replication of **T-JEPA** (ICLR 2025) — a self-supervised learning method for tabular data based on joint-embedding predictive architecture.
+
+> **Paper:** [T-JEPA: Tabular Joint-Embedding Predictive Architecture](https://arxiv.org/abs/2410.05016)  
+> T-JEPA learns rich representations from unlabeled tabular features by predicting masked target feature representations from context features using a transformer-based encoder and predictor.
+
+---
+
+## Overview
+
+This repository provides a clean, end-to-end implementation of T-JEPA demonstrated on the **Adult Income** dataset. The pipeline:
+
+1. **Downloads & preprocesses** tabular data (numerical + categorical features)
+2. **Pre-trains T-JEPA** in a self-supervised manner (no labels used)
+3. **Extracts representations** from the pre-trained context encoder
+4. **Trains a downstream MLP classifier** on the frozen T-JEPA representations
+5. **Trains a baseline MLP** on raw features for direct comparison
+6. **Reports test accuracy** for both approaches
+
+---
+
+## Architecture
+
+| Component | Description |
+|-----------|-------------|
+| **Feature Embedding** | Per-feature linear projection + learned index & type embeddings (numerical vs categorical) |
+| **Context Encoder** | Transformer encoder trained by gradient descent |
+| **Target Encoder** | EMA (Exponential Moving Average) copy of the context encoder — no gradients |
+| **Predictor** | Lightweight transformer that predicts target feature representations from context representations |
+| **Masking Strategy** | Random context/target masks with configurable ratios; multiple non-overlapping target masks per sample |
+
+---
+
+## File Structure
+
+```
+.
+├── data.py          # Data loading, preprocessing, and PyTorch Dataset/DataLoader
+├── model.py         # T-JEPA model: FeatureEmbedding, TransformerEncoder, Predictor, TJEPA
+├── trainer.py       # Pre-training and downstream training loops
+├── downstream.py    # MLP classifiers on top of T-JEPA representations
+├── run.py           # End-to-end pipeline script
+├── requirements.txt # Python dependencies
+└── README.md        # This file
+```
+
+---
+
+## Installation
+
+```bash
+# Clone the repository
+git clone <repo-url>
+cd T-JEPA-test
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### Requirements
+- Python >= 3.9
+- PyTorch >= 2.0.0
+- NumPy >= 1.24.0
+- Pandas >= 2.0.0
+- scikit-learn >= 1.3.0
+- tqdm >= 4.65.0
+
+---
+
+## Usage
+
+### Quick Start
+
+Run the full pipeline with default hyperparameters:
+
+```bash
+python run.py
+```
+
+### Custom Configuration
+
+```bash
+python run.py \
+  --epochs-pretrain 100 \
+  --epochs-downstream 100 \
+  --hidden-dim 128 \
+  --num-heads 8 \
+  --num-layers 6 \
+  --batch-size 512 \
+  --lr-pretrain 1e-4 \
+  --device cuda
+```
+
+### Command-Line Arguments
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--hidden-dim` | 64 | Transformer hidden dimension |
+| `--num-heads` | 4 | Number of attention heads |
+| `--num-layers` | 4 | Number of transformer encoder layers |
+| `--ffn-dim` | 256 | Feed-forward network dimension |
+| `--pred-dim` | 32 | Predictor hidden dimension |
+| `--epochs-pretrain` | 50 | Number of pre-training epochs |
+| `--epochs-downstream` | 50 | Number of downstream training epochs |
+| `--batch-size` | 256 | Batch size for training |
+| `--lr-pretrain` | 3e-4 | Learning rate for T-JEPA pre-training |
+| `--lr-downstream` | 1e-3 | Learning rate for downstream classifier |
+| `--ema-decay` | 0.998 | EMA decay rate for target encoder |
+| `--device` | cuda (if available) | Device to run on: `cpu` or `cuda` |
+
+---
+
+## Pipeline Steps
+
+The `run.py` script executes the following steps:
+
+```
+[1/6] Loading & preprocessing data …
+[2/6] Building T-JEPA model …
+[3/6] Pre-training T-JEPA for N epochs …
+[4/6] Extracting T-JEPA representations …
+[5/6] Training downstream MLP on T-JEPA representations …
+[6/6] Training baseline sklearn MLP on raw features …
+```
+
+At the end, a summary comparing **Baseline MLP** vs **T-JEPA + MLP** test accuracies is printed.
+
+---
+
+## Key Implementation Details
+
+- **Self-Supervised Pre-training:** No labels are used during T-JEPA pre-training. The model learns by predicting masked target feature representations from context features.
+- **EMA Target Encoder:** The target encoder is updated via exponential moving average of the context encoder weights, providing stable target representations.
+- **Per-Feature Processing:** Each feature has its own projection layer; features are not flattened into a single vector, preserving tabular structure.
+- **Categorical Handling:** Categorical features are one-hot encoded before projection.
+- **Gradient Clipping:** Max norm of 1.0 is applied during pre-training for stability.
+- **Cosine Annealing:** Learning rate schedule used for both pre-training and downstream phases.
+
+---
+
+## Extending to Other Datasets
+
+To use T-JEPA on your own tabular dataset:
+
+1. Replace `load_adult()` in `run.py` with your data loading function
+2. Ensure it returns: `(df, target_col, num_cols, cat_cols)`
+3. The rest of the pipeline (`build_loaders`, `TJEPA`, training loops) remains unchanged
+
+---
+
+## Citation
+
+If you use this code, please cite the original paper:
+
+```bibtex
+@inproceedings{anonymous2025tjepa,
+  title={T-JEPA: Tabular Joint-Embedding Predictive Architecture},
+  booktitle={International Conference on Learning Representations (ICLR)},
+  year={2025}
+}
+```
+
+---
+
+## License
+
+This implementation is provided for research and educational purposes.
+

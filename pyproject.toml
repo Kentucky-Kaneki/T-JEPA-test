@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cyber-jepa"
+version = "0.1.0"
+description = "Defender-Oriented Action-Conditioned JEPA World Model for CybORG"
+authors = [{name = "Cyber-JEPA Team"}]
+readme = "README.md"
+requires-python = ">=3.10"
+
+dependencies = [
+    "torch>=2.0.0",
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
+    "scikit-learn>=1.3.0",
+    "pyarrow>=12.0.0",
+    "zstandard>=0.21.0",
+    "pyyaml>=6.0",
+    "tqdm>=4.65.0",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+sim = [
+    "gym<0.26.0",
+    "prettytable>=3.0.0",
+]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.1.0",
+    "mypy>=1.5.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+select = ["E", "F", "B", "I", "N", "UP"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+ignore_missing_imports = true
+warn_return_any = true
+warn_unused_configs = true
