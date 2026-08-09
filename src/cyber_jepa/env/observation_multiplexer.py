@@ -13,6 +13,16 @@ from CybORG import CybORG
 from CybORG.Agents.Wrappers import ChallengeWrapper
 from CybORG.Agents import B_lineAgent, RedMeanderAgent
 from CybORG.Simulator.Scenarios import FileReaderScenarioGenerator
+from CybORG.Simulator.Actions.ConcreteActions.ExploitActions.SSHBruteForce import SSHBruteForce
+
+# Upstream CybORG dd586a3 SSHBruteForce decoy bug fix
+def _patch_create_exploit_decoy_event(self, local_port, target_host=None, **kwargs):
+    if target_host is not None and hasattr(target_host, "events"):
+        event = {'local_address': self.ip_address, 'local_port': self.port}
+        target_host.events['NetworkConnections'].append(event)
+
+if not hasattr(SSHBruteForce, "_create_exploit_decoy_event"):
+    SSHBruteForce._create_exploit_decoy_event = _patch_create_exploit_decoy_event
 
 from cyber_jepa.env.action_mapper import ActionMapper
 from cyber_jepa.data.schema import (

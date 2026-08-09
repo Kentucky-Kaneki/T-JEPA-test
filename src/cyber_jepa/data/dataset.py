@@ -100,25 +100,25 @@ class CyberJEPADataset(Dataset):
             ep_groups = filtered_df.groupby("episode_id", sort=True)
 
             for ep_id, group in ep_groups:
-                group_indices = group.index.tolist()
+                group_indices = np.array(group.index.tolist())
                 L = len(group_indices)
 
+                act_col = "action_discrete_index" if "action_discrete_index" in group.columns else "action_idx"
+                t_col = "step_index" if "step_index" in group.columns else "t"
+
+                act_vals = group[act_col].values
+                t_vals = group[t_col].values
+
                 # Window requirement: history_len history steps + horizon future action/target steps
-                for idx in range(self.history_len - 1, L - self.horizon):
-                    # History indices: idx - 3, idx - 2, idx - 1, idx
-                    hist_idx_range = group_indices[idx - self.history_len + 1 : idx + 1]
-                    target_idx = group_indices[idx + self.horizon]
-                    action_idx_range = group_indices[idx : idx + self.horizon]
+                for i in range(self.history_len - 1, L - self.horizon):
+                    hist_idx_range = group_indices[i - self.history_len + 1 : i + 1]
+                    target_idx = group_indices[i + self.horizon]
 
-                    act_col = "action_discrete_index" if "action_discrete_index" in group.columns else "action_idx"
-                    t_col = "step_index" if "step_index" in group.columns else "t"
-
-                    # Verify no episode boundary breaks
                     hist_flats = flats[hist_idx_range]                # [4, 52]
                     target_flat = flats[target_idx]                   # [52]
-                    action_seq = group.loc[action_idx_range, act_col].values.tolist()
-                    t_ctx = int(group.loc[group_indices[idx], t_col])
-                    t_tgt = int(group.loc[target_idx, t_col])
+                    action_seq = act_vals[i : i + self.horizon].tolist()
+                    t_ctx = int(t_vals[i])
+                    t_tgt = int(t_vals[i + self.horizon])
 
                     self.samples.append({
                         "episode_id": ep_id,
