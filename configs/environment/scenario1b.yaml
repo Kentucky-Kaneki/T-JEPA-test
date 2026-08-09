@@ -1,0 +1,6 @@
+name: Scenario1b
+num_hosts: 13
+num_subnets: 3
+obs_flat_dim: 52
+discrete_action_dim: 66
+pinned_commit: dd586a3

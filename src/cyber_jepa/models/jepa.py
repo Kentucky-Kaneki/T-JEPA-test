@@ -71,12 +71,13 @@ class CyberJEPA(nn.Module):
         # 4. Target representation via EMA target encoder (deterministic, no grad)
         with torch.no_grad():
             if target_obs.dim() == 2:
-                # Add dummy history dimension if single timestep passed
                 target_in = target_obs.unsqueeze(1).expand(-1, getattr(self.online_encoder, "history_len", 4), -1)
             else:
                 target_in = target_obs
             target_latents = self.target_encoder(target_in)
-            if target_latents.dim() == 3:
+            if target_latents.dim() == 4:
+                target_latents = target_latents[:, -1, :, :].mean(dim=1)
+            elif target_latents.dim() == 3:
                 target_latents = target_latents[:, -1, :]
             target_latent = target_latents.detach()
 

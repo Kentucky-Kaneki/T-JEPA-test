@@ -1,0 +1,12 @@
+horizons: [1, 2, 4, 8, 16]
+seeds: [11, 23, 37, 53, 71]
+models: ["flat", "feature", "host", "hierarchical"]
+batch_size: 128
+gradient_accumulation_steps: 2
+lr: 0.0003
+weight_decay: 0.0001
+max_epochs: 50
+min_epochs: 15
+patience: 10
+grad_clip: 1.0
+vram_limit_gb: 3.6

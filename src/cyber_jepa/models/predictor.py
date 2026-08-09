@@ -109,7 +109,10 @@ class LatentPredictor(nn.Module):
         """
         B = action_tokens.shape[0]
 
-        if context_tokens.dim() == 2:
+        if context_tokens.dim() == 4:
+            B, T_hist, N_ent, D = context_tokens.shape
+            ctx = context_tokens.view(B, T_hist * N_ent, D)
+        elif context_tokens.dim() == 2:
             ctx = context_tokens.unsqueeze(1) # [B, 1, D]
         else:
             ctx = context_tokens             # [B, N_ctx, D]
