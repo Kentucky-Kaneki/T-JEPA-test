@@ -6,6 +6,7 @@ ObservationMultiplexer and saves immutable dataset shards with checksums.
 """
 
 import hashlib
+import inspect
 import random
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,15 @@ class CoverageDirectedPolicy:
         chosen_type = self.rng.choice(self.action_types)
         chosen_index = self.rng.choice(self.type_groups[chosen_type])
         return chosen_index
+
+
+def get_scenario1b_path() -> str:
+    """Return absolute path to pinned Scenario1b.yaml scenario file."""
+    import CybORG as cyborg_pkg
+    cyborg_dir = Path(inspect.getfile(cyborg_pkg)).parent
+    path = cyborg_dir / "Simulator" / "Scenarios" / "scenario_files" / "Scenario1b.yaml"
+    assert path.exists(), f"Scenario1b.yaml not found at {path}"
+    return str(path)
 
 
 def compute_scenario_hash(scenario_path: str) -> str:
