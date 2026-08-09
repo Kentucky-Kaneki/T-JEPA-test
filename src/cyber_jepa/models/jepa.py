@@ -1,0 +1,102 @@
+"""
+Cyber-JEPA Model Core.
+
+Maintains online context encoder f_theta, complete EMA target encoder f_bar_theta,
+ActionEncoder e_a, and LatentPredictor g_phi with EMA momentum scheduling.
+"""
+
+import copy
+from typing import Any
+import torch
+import torch.nn as nn
+
+from cyber_jepa.models.predictor import ActionEncoder, LatentPredictor, compute_jepa_loss
+
+
+class CyberJEPA(nn.Module):
+    """Action-Conditioned Joint-Embedding Predictive Architecture for CybORG."""
+
+    def __init__(
+        self,
+        online_encoder: nn.Module,
+        hidden_dim: int = 64,
+        max_horizon: int = 16,
+        ema_momentum_init: float = 0.996,
+        ema_momentum_final: float = 1.000,
+    ):
+        super().__init__()
+        self.hidden_dim = hidden_dim
+        self.ema_momentum_init = ema_momentum_init
+        self.ema_momentum_final = ema_momentum_final
+
+        # 1. Online context encoder f_theta
+        self.online_encoder = online_encoder
+
+        # 2. Complete EMA target encoder f_bar_theta (copied & frozen)
+        self.target_encoder = copy.deepcopy(online_encoder)
+        for p in self.target_encoder.parameters():
+            p.requires_grad = False
+
+        # 3. Action encoder e_a
+        self.action_encoder = ActionEncoder(hidden_dim=hidden_dim, max_horizon=max_horizon)
+
+        # 4. Latent predictor g_phi
+        self.predictor = LatentPredictor(hidden_dim=hidden_dim)
+
+    def forward(
+        self,
+        history_obs: torch.Tensor,         # [B, T_hist, 52]
+        action_seq: torch.Tensor,          # [B, k]
+        target_obs: torch.Tensor,          # [B, 52] or target representation
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Forward pass computing online predicted latent and target latent.
+
+        Returns:
+            loss: Layer-Normalized Smooth L1 loss scalar
+            pred_latent: [B, hidden_dim]
+            target_latent: [B, hidden_dim] (stop-gradient)
+        """
+        B = history_obs.shape[0]
+
+        # 1. Encode context via online encoder
+        context_latents = self.online_encoder(history_obs) # [B, D] or [B, N_tokens, D]
+
+        # 2. Encode action sequence
+        action_tokens = self.action_encoder(action_seq)    # [B, k, D]
+
+        # 3. Predict future representation
+        pred_latent = self.predictor(context_latents, action_tokens) # [B, D]
+
+        # 4. Target representation via EMA target encoder (deterministic, no grad)
+        with torch.no_grad():
+            if target_obs.dim() == 2:
+                # Add dummy history dimension if single timestep passed
+                target_in = target_obs.unsqueeze(1).expand(-1, getattr(self.online_encoder, "history_len", 4), -1)
+            else:
+                target_in = target_obs
+            target_latents = self.target_encoder(target_in)
+            if target_latents.dim() == 3:
+                target_latents = target_latents[:, -1, :]
+            target_latent = target_latents.detach()
+
+        # 5. Layer-Normalized Smooth L1 JEPA Loss
+        loss = compute_jepa_loss(pred_latent, target_latent)
+        return loss, pred_latent, target_latent
+
+    @torch.no_grad()
+    def update_target_encoder(self, step: int, total_steps: int) -> float:
+        """EMA update of target encoder parameters: theta_bar <- m * theta_bar + (1-m) * theta."""
+        if total_steps <= 1:
+            m = self.ema_momentum_init
+        else:
+            m = self.ema_momentum_init + (self.ema_momentum_final - self.ema_momentum_init) * (step / total_steps)
+        m = min(1.0, max(0.0, m))
+
+        for param_q, param_k in zip(self.online_encoder.parameters(), self.target_encoder.parameters()):
+            param_k.data.mul_(m).add_(param_q.data, alpha=1.0 - m)
+
+        for buffer_q, buffer_k in zip(self.online_encoder.buffers(), self.target_encoder.buffers()):
+            buffer_k.data.copy_(buffer_q.data)
+
+        return m
