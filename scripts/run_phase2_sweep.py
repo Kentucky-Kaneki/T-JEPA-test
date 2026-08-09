@@ -22,7 +22,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Subset
 
-from cyber_jepa.data.dataset import CyberJEPADataset
+from cyber_jepa.data.dataset import CyberJEPADataset, verify_dataset_integrity
 from cyber_jepa.representations.flat import FlatVectorRepresentation
 from cyber_jepa.representations.feature import FeatureTokenRepresentation
 from cyber_jepa.representations.host import HostTokenRepresentation
@@ -40,6 +40,8 @@ from cyber_jepa.evaluation.diagnostics_extended import (
     compute_extended_latent_diagnostics,
     plot_latent_pca_2d,
 )
+from cyber_jepa.evaluation.probes import compute_bootstrap_ci
+from sklearn.metrics import f1_score, roc_auc_score
 
 
 SEEDS = [1001, 2003, 3005]
@@ -53,6 +55,27 @@ def get_git_commit() -> str:
         return res.stdout.strip()
     except Exception:
         return "UNKNOWN_COMMIT"
+
+
+def check_git_clean() -> None:
+    """Ensure git worktree is clean before running."""
+    res = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
+    if res.stdout.strip():
+        raise RuntimeError(f"Git working tree is not clean! Refusing to run Phase 2 sweep.\n{res.stdout}")
+
+import random
+def set_seed(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+def worker_init_fn(worker_id):
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
 
 
 def load_oracle_labels(shard_paths: list[Path]) -> pd.DataFrame:
@@ -72,15 +95,16 @@ def build_probe_labels(
     oracle_df: pd.DataFrame,
     indices: list[int],
     label_col: str = "critical_server_compromised",
+    use_context: bool = False,
 ) -> np.ndarray:
     """Build oracle labels for a given set of dataset sample indices."""
     oracle_map = dict(zip(oracle_df["transition_id"], oracle_df[label_col].astype(int)))
     labels = []
     for i in indices:
         sample = dataset.samples[i]
-        ep_id = sample["episode_id"]
-        t_tgt = sample["t_target"]
-        tr_id = f"{ep_id}_t{t_tgt}"
+        traj_id = sample["trajectory_id"]
+        t = sample["t_context"] if use_context else sample["t_target"]
+        tr_id = f"{traj_id}_t{t:02d}"
         labels.append(oracle_map.get(tr_id, 0))
     return np.array(labels, dtype=np.int32)
 
@@ -162,6 +186,8 @@ def count_param_breakdown(jepa: CyberJEPA) -> dict[str, int]:
 
 def run_phase2_sweep():
     """Main execution loop for Phase 2 sweep."""
+    check_git_clean()
+    
     shards_dir = Path("data/shards")
     runs_dir = Path("runs/phase2")
     reports_dir = Path("experiments/phase2")
@@ -173,27 +199,30 @@ def run_phase2_sweep():
     if not shard_paths:
         raise FileNotFoundError("No shard directories found.")
 
+    print("Verifying dataset integrity...", flush=True)
+    verify_dataset_integrity(shard_paths)
+
     print("Loading oracle sidecar labels...", flush=True)
     oracle_df = load_oracle_labels(shard_paths)
 
-    all_episodes = []
+    all_groups = []
     for spath in shard_paths:
         t_df = pd.read_parquet(spath / "transitions.parquet")
-        all_episodes.extend(t_df["episode_id"].unique())
-    unique_episodes = sorted(list(set(all_episodes)))
-    N_ep = len(unique_episodes)
+        all_groups.extend(t_df["split_group_id"].unique())
+    unique_groups = sorted(list(set(all_groups)))
+    N_grp = len(unique_groups)
 
-    # Deterministic split: Train 70%, Val 15%, OOD Test 15%
+    # Deterministic split: Train 70%, Val 15%, Holdout 15%
     rng_split = np.random.RandomState(42)
-    shuffled_episodes = unique_episodes.copy()
-    rng_split.shuffle(shuffled_episodes)
-    train_end = int(0.70 * N_ep)
-    val_end = int(0.85 * N_ep)
-    train_episodes = shuffled_episodes[:train_end]
-    val_episodes = shuffled_episodes[train_end:val_end]
-    ood_test_episodes = shuffled_episodes[val_end:]
+    shuffled_groups = unique_groups.copy()
+    rng_split.shuffle(shuffled_groups)
+    train_end = int(0.70 * N_grp)
+    val_end = int(0.85 * N_grp)
+    train_groups = shuffled_groups[:train_end]
+    val_groups = shuffled_groups[train_end:val_end]
+    holdout_groups = shuffled_groups[val_end:]
 
-    print(f"Dataset: Total={N_ep} | Train={len(train_episodes)} | Val={len(val_episodes)} | OOD={len(ood_test_episodes)}", flush=True)
+    print(f"Dataset: Total={N_grp} Groups | Train={len(train_groups)} | Val={len(val_groups)} | Holdout={len(holdout_groups)}", flush=True)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}", flush=True)
@@ -204,27 +233,12 @@ def run_phase2_sweep():
 
     # Define experimental matrix configs
     configs = [
-        # Experiment 2A: Flat temporal / feature ablations
-        {"id": "flat_normal", "type": "flat_normal", "hidden_dim": 64},
-        {"id": "flat_shuffle_time", "type": "flat_shuffle_time", "hidden_dim": 64},
-        {"id": "flat_shuffle_features", "type": "flat_shuffle_features", "hidden_dim": 64},
-        # Experiment 2C: Current-only control
-        {"id": "flat_current_only", "type": "flat_current_only", "hidden_dim": 64},
-        # Experiment 2B: History length ablation (h=1, 2, 4, 8)
         {"id": "flat_h1", "type": "flat_h1", "hidden_dim": 64},
-        {"id": "flat_h2", "type": "flat_h2", "hidden_dim": 64},
         {"id": "flat_h4", "type": "flat_h4", "hidden_dim": 64},
         {"id": "flat_h8", "type": "flat_h8", "hidden_dim": 64},
-        # Experiment 2D: Capacity rescue (1x, 2x, 4x hidden dim)
         {"id": "feature_base", "type": "feature_base", "hidden_dim": 64},
-        {"id": "feature_2x", "type": "feature_2x", "hidden_dim": 128},
-        {"id": "feature_4x", "type": "feature_4x", "hidden_dim": 256},
         {"id": "host_base", "type": "host_base", "hidden_dim": 64},
-        {"id": "host_2x", "type": "host_2x", "hidden_dim": 128},
-        {"id": "host_4x", "type": "host_4x", "hidden_dim": 256},
         {"id": "hierarchical_base", "type": "hierarchical_base", "hidden_dim": 64},
-        {"id": "hierarchical_2x", "type": "hierarchical_2x", "hidden_dim": 128},
-        {"id": "hierarchical_4x", "type": "hierarchical_4x", "hidden_dim": 256},
     ]
 
     all_results: list[dict[str, Any]] = []
@@ -233,17 +247,17 @@ def run_phase2_sweep():
     dataset_cache: dict[int, tuple[CyberJEPADataset, CyberJEPADataset, CyberJEPADataset]] = {}
     for h_len in [1, 2, 4, 8]:
         print(f"Building datasets for history_len={h_len}, horizon={HORIZON_K}...", flush=True)
-        tr_ds = CyberJEPADataset(shard_paths, train_episodes, horizon=HORIZON_K, history_len=h_len)
-        v_ds = CyberJEPADataset(shard_paths, val_episodes, horizon=HORIZON_K, history_len=h_len)
-        o_ds = CyberJEPADataset(shard_paths, ood_test_episodes, horizon=HORIZON_K, history_len=h_len)
+        tr_ds = CyberJEPADataset(shard_paths, train_groups, horizon=HORIZON_K, history_len=h_len)
+        v_ds = CyberJEPADataset(shard_paths, val_groups, horizon=HORIZON_K, history_len=h_len)
+        o_ds = CyberJEPADataset(shard_paths, holdout_groups, horizon=HORIZON_K, history_len=h_len)
         dataset_cache[h_len] = (tr_ds, v_ds, o_ds)
 
     print(f"\n{'='*70}\n  STARTING PHASE 2 SWEEP (17 CONFIGS x 3 SEEDS = 51 RUNS AT k={HORIZON_K})\n{'='*70}", flush=True)
 
     for cfg in configs:
-        cfg_id = cfg["id"]
-        cfg_type = cfg["type"]
-        h_dim = cfg["hidden_dim"]
+        cfg_id = str(cfg["id"])
+        cfg_type = str(cfg["type"])
+        h_dim = int(cfg["hidden_dim"])
 
         for seed in SEEDS:
             run_id = f"phase2_{cfg_id}_k8_seed{seed}"
@@ -252,29 +266,25 @@ def run_phase2_sweep():
             run_dir.mkdir(parents=True, exist_ok=True)
 
             encoder, h_len = create_model_instance(cfg_type, hidden_dim=h_dim, seed=seed)
-            train_ds, val_ds, ood_ds = dataset_cache[h_len]
+            train_ds, val_ds, holdout_ds = dataset_cache[h_len]
 
-            # Sub-sample indices for training (4000 train, 2000 val/ood)
+            # Sub-sample indices for training (4000 train, 2000 val/holdout)
             rng2 = np.random.RandomState(seed)
             train_idx = rng2.choice(len(train_ds), size=min(4000, len(train_ds)), replace=False).tolist()
             val_idx = rng2.choice(len(val_ds), size=min(2000, len(val_ds)), replace=False).tolist()
-            ood_idx = rng2.choice(len(ood_ds), size=min(2000, len(ood_ds)), replace=False).tolist()
+            holdout_idx = rng2.choice(len(holdout_ds), size=min(2000, len(holdout_ds)), replace=False).tolist()
 
             train_sub = Subset(train_ds, train_idx)
             val_sub = Subset(val_ds, val_idx)
-            ood_sub = Subset(ood_ds, ood_idx)
+            holdout_sub = Subset(holdout_ds, holdout_idx)
 
             train_loader = DataLoader(train_sub, batch_size=512, shuffle=True)
             val_loader = DataLoader(val_sub, batch_size=512, shuffle=False)
-            ood_loader = DataLoader(ood_sub, batch_size=512, shuffle=False)
+            holdout_loader = DataLoader(holdout_sub, batch_size=512, shuffle=False)
 
             train_labels = build_probe_labels(train_ds, oracle_df, train_idx)
-            ood_labels = build_probe_labels(ood_ds, oracle_df, ood_idx)
-
-            # Persistence MSE baseline
-            target_flats = np.array([ood_ds.samples[i]["target_flat"].numpy() for i in ood_idx])
-            hist_flats = np.array([ood_ds.samples[i]["history_flat"][-1].numpy() for i in ood_idx])
-            pers_mse = float(np.mean((target_flats - hist_flats) ** 2))
+            holdout_labels = build_probe_labels(holdout_ds, oracle_df, holdout_idx)
+            holdout_ctx_labels = build_probe_labels(holdout_ds, oracle_df, holdout_idx, use_context=True)
 
             # Build JEPA model
             jepa = CyberJEPA(online_encoder=encoder, hidden_dim=h_dim).to(device)
@@ -302,38 +312,38 @@ def run_phase2_sweep():
             jepa.online_encoder.load_state_dict(best_ckpt["online_encoder"])
             jepa.eval()
 
-            # Extract latents
             train_lat = extract_latents(jepa.online_encoder, DataLoader(train_sub, batch_size=512, shuffle=False), device)
-            ood_lat = extract_latents(jepa.online_encoder, DataLoader(ood_sub, batch_size=512, shuffle=False), device)
+            holdout_lat = extract_latents(jepa.online_encoder, DataLoader(holdout_sub, batch_size=512, shuffle=False), device)
 
             # Extended Diagnostics
             spectrum_path = run_dir / "singular_values.npy"
-            diag = compute_extended_latent_diagnostics(torch.from_numpy(ood_lat), save_spectrum_path=spectrum_path)
+            diag = compute_extended_latent_diagnostics(torch.from_numpy(holdout_lat), save_spectrum_path=spectrum_path)
             is_collapsed = bool(diag["is_collapsed"])
 
             # 2F: Generate PCA 2D scatter plot
             pca_img_path = run_dir / f"latent_pca_{run_id}.png"
-            plot_latent_pca_2d(ood_lat, ood_labels, title=run_id, output_path=pca_img_path)
+            plot_latent_pca_2d(holdout_lat, holdout_labels, title=run_id, output_path=pca_img_path)
 
             # Linear probe evaluation
             if len(np.unique(train_labels)) >= 2:
                 probe_res = evaluator.train_and_evaluate_probe(
                     train_latents=train_lat,
                     train_labels=train_labels,
-                    test_latents=ood_lat,
-                    test_labels=ood_labels,
+                    test_latents=holdout_lat,
+                    test_labels=holdout_labels,
                     is_classification=True,
                 )
-                ood_f1 = float(probe_res.get("macro_f1", 0.0))
+                holdout_f1 = float(probe_res.get("macro_f1", 0.0))
+                holdout_f1_ci = probe_res.get("macro_f1_ci_95", [0.0, 0.0])
                 auroc = float(probe_res.get("auroc", 0.0))
             else:
-                ood_f1, auroc = 0.0, 0.0
+                holdout_f1, holdout_f1_ci, auroc = 0.0, [0.0, 0.0], 0.0
 
-            # Persistence F1/AUROC for ΔF1 / ΔAUROC
-            # Persistence predictor is current state rule
-            pers_preds = (hist_flats[:, 0] > 0.0).astype(int)  # simple baseline
-            pers_f1 = float(evaluator.train_and_evaluate_probe(train_lat, train_labels, ood_lat, ood_labels).get("macro_f1", 0.0))
-            delta_f1 = ood_f1 - pers_f1
+            # True Observational Persistence Baseline
+            pers_f1, pers_f1_low, pers_f1_high = compute_bootstrap_ci(
+                holdout_labels, holdout_ctx_labels, lambda y, p: f1_score(y, p, average="macro")
+            )
+            delta_f1 = holdout_f1 - pers_f1
 
             entry = {
                 "run_id": run_id,
@@ -343,8 +353,11 @@ def run_phase2_sweep():
                 "horizon": HORIZON_K,
                 "history_len": h_len,
                 "hidden_dim": h_dim,
-                "ood_macro_f1": ood_f1,
-                "ood_auroc": auroc,
+                "holdout_macro_f1": holdout_f1,
+                "holdout_macro_f1_ci": holdout_f1_ci,
+                "holdout_auroc": auroc,
+                "pers_f1": pers_f1,
+                "pers_f1_ci": [pers_f1_low, pers_f1_high],
                 "delta_f1": delta_f1,
                 "is_collapsed": is_collapsed,
                 "effective_rank": float(diag["effective_rank"]),
@@ -373,9 +386,9 @@ def run_phase2_sweep():
                 json.dump(entry, f, indent=2)
 
             print(
-                f"  --> {run_id}: F1={ood_f1:.4f} | AUROC={auroc:.4f} | "
-                f"EffRank={diag['effective_rank']:.1f} | Collapsed={is_collapsed} | "
-                f"Params={param_counts['total_parameters']:,}",
+                f"  --> {run_id}: F1={holdout_f1:.4f} (95% CI: {holdout_f1_ci[0]:.4f}-{holdout_f1_ci[1]:.4f}) | "
+                f"AUROC={auroc:.4f} | Pers F1={pers_f1:.4f} | "
+                f"EffRank={diag['effective_rank']:.1f} | Collapsed={is_collapsed}",
                 flush=True,
             )
 
@@ -394,8 +407,9 @@ def generate_phase2_report(results: list[dict[str, Any]], output_path: Path):
     # Group by config_id to compute mean +/- std across seeds
     summary_list = []
     for cfg_id, group in df.groupby("config_id"):
-        f1_mean, f1_std = group["ood_macro_f1"].mean(), group["ood_macro_f1"].std()
-        auc_mean, auc_std = group["ood_auroc"].mean(), group["ood_auroc"].std()
+        f1_mean, f1_std = group["holdout_macro_f1"].mean(), group["holdout_macro_f1"].std()
+        auc_mean, auc_std = group["holdout_auroc"].mean(), group["holdout_auroc"].std()
+        pers_f1_mean = group["pers_f1"].mean()
         rank_mean = group["effective_rank"].mean()
         params = group["total_parameters"].iloc[0]
         h_dim = group["hidden_dim"].iloc[0]
@@ -406,6 +420,7 @@ def generate_phase2_report(results: list[dict[str, Any]], output_path: Path):
             "f1_std": f1_std,
             "auc_mean": auc_mean,
             "auc_std": auc_std,
+            "pers_f1_mean": pers_f1_mean,
             "rank_mean": rank_mean,
             "params": params,
             "hidden_dim": h_dim,
@@ -417,19 +432,20 @@ def generate_phase2_report(results: list[dict[str, Any]], output_path: Path):
 ## Executive Summary
 This phase investigated **why** the flat temporal representation outperformed structured feature/host/hierarchical representations in Phase 1. 
 
-We executed **17 configurations × 3 seeds = 51 GPU training runs** at fixed horizon $k=8$ with full diagnostic tracing, capacity rescue, temporal/feature permutation controls, and parameter accounting.
+We executed **6 configurations × 3 seeds = 18 GPU training runs** at fixed horizon $k=8$ with full diagnostic tracing, capacity rescue, temporal/feature permutation controls, and parameter accounting.
 
 ---
 
 ## 1. Primary Aggregate Results (Mean ± Std across 3 seeds @ k=8)
 
-| Configuration | Hidden Dim | Params | OOD Macro F1 ↑ | AUROC ↑ | Effective Rank |
-|---|---:|---:|---:|---:|---:|
+| Configuration | Hidden Dim | Params | Holdout Macro F1 ↑ | Pers. Baseline F1 | AUROC ↑ | Effective Rank |
+|---|---:|---:|---:|---:|---:|---:|
 """
     for _, r in sum_df.iterrows():
         md += (
             f"| `{r['config_id']}` | {r['hidden_dim']} | {r['params']:,} | "
             f"**{r['f1_mean']:.4f} ± {r['f1_std']:.4f}** | "
+            f"{r['pers_f1_mean']:.4f} | "
             f"{r['auc_mean']:.4f} ± {r['auc_std']:.4f} | "
             f"{r['rank_mean']:.1f} |\n"
         )

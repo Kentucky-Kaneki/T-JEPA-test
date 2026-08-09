@@ -125,7 +125,7 @@ class Trainer:
             history["train_loss"].append(t_loss)
             history["val_loss"].append(v_loss)
 
-            print(f"Epoch {epoch:02d}/{self.max_epochs:02d} - Train Loss: {t_loss:.6f} - Val Loss: {v_loss:.6f}")
+            print(f"Epoch {epoch:02d}/{self.max_epochs:02d} - Train Loss: {t_loss:.6f} - Val Loss: {v_loss:.6f}", flush=True)
 
             # Save last checkpoint atomically
             self.save_checkpoint(self.run_dir / "last.pt", epoch, v_loss)

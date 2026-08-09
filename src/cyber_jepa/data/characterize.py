@@ -64,7 +64,7 @@ def analyze_dataset_shards(
         total_transitions += N
 
         for idx, row in trans_df.iterrows():
-            ep_id = str(row["episode_id"])
+            ep_id = str(row["trajectory_id"])
             if ep_id not in episodes_map:
                 episodes_map[ep_id] = {
                     "flats": [],

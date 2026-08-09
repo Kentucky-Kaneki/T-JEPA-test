@@ -85,17 +85,18 @@ def collect_shard(
     random_policy_rng = random.Random(seed * 17 + 3)
 
     for ep in range(episodes):
-        ep_id = f"ep_{seed}_{ep:03d}"
+        split_group_id = f"group_{seed}_{ep:03d}"
+        trajectory_id = f"traj_{red_policy}_{blue_policy}_{seed}_{ep:03d}"
         ep_seed = seed + ep
 
         # Reset simulator ONCE per episode
-        obs0, oracle0 = mux.reset(seed=ep_seed, episode_id=ep_id)
+        obs0, oracle0 = mux.reset(seed=ep_seed, trajectory_id=trajectory_id, split_group_id=split_group_id)
         oracle_labels.append(oracle0)
 
         current_obs = obs0
 
         for t in range(1, max_steps + 1):
-            trans_id = f"{ep_id}_t{t:02d}"
+            trans_id = f"{trajectory_id}_t{t:02d}"
 
             # Sample Blue action
             if blue_policy.lower() == "sleep":
@@ -110,13 +111,15 @@ def collect_shard(
             # Single simulator step
             next_obs, reward, act_spec, done, info, next_oracle = mux.step(
                 action=action_idx,
-                episode_id=ep_id,
+                trajectory_id=trajectory_id,
+                split_group_id=split_group_id,
             )
             oracle_labels.append(next_oracle)
 
             trans = Transition(
                 dataset_id=dataset_id,
-                episode_id=ep_id,
+                trajectory_id=trajectory_id,
+                split_group_id=split_group_id,
                 transition_id=trans_id,
                 seed=ep_seed,
                 step_index=t,
@@ -155,7 +158,7 @@ def collect_shard(
             if done:
                 break
 
-    manifest = {
+    manifest: dict[str, Any] = {
         "dataset_id": dataset_id,
         "scenario_name": "Scenario1b",
         "scenario_hash": scenario_hash,

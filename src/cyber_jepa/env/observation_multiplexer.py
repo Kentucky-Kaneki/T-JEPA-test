@@ -74,7 +74,7 @@ class ObservationMultiplexer:
         self.underlying_step_count = 0
         self.step_counter = 0
 
-    def reset(self, seed: int | None = None, episode_id: str = "ep0") -> tuple[BlueObservation, OracleLabels]:
+    def reset(self, seed: int | None = None, trajectory_id: str = "traj0", split_group_id: str = "grp0") -> tuple[BlueObservation, OracleLabels]:
         """Reset underlying simulator EXACTLY ONCE and return initial observation + oracle labels."""
         if seed is not None:
             self.seed = seed
@@ -96,15 +96,16 @@ class ObservationMultiplexer:
             timestep=0,
         )
 
-        transition_id = f"{episode_id}_t0"
-        oracle = self._extract_oracle_labels(transition_id=transition_id, episode_id=episode_id, timestep=0)
+        transition_id = f"{trajectory_id}_t0"
+        oracle = self._extract_oracle_labels(transition_id=transition_id, trajectory_id=trajectory_id, split_group_id=split_group_id, timestep=0)
 
         return obs, oracle
 
     def step(
         self,
         action: Union[int, ActionSpec],
-        episode_id: str = "ep0",
+        trajectory_id: str = "traj0",
+        split_group_id: str = "grp0",
     ) -> tuple[BlueObservation, float, ActionSpec, bool, dict[str, Any], OracleLabels]:
         """Perform EXACTLY ONE simulator step for the requested action."""
         if isinstance(action, ActionSpec):
@@ -131,8 +132,8 @@ class ObservationMultiplexer:
             timestep=t,
         )
 
-        transition_id = f"{episode_id}_t{t}"
-        oracle = self._extract_oracle_labels(transition_id=transition_id, episode_id=episode_id, timestep=t)
+        transition_id = f"{trajectory_id}_t{t}"
+        oracle = self._extract_oracle_labels(transition_id=transition_id, trajectory_id=trajectory_id, split_group_id=split_group_id, timestep=t)
 
         return obs, float(reward), action_spec, bool(done), info, oracle
 
@@ -223,7 +224,7 @@ class ObservationMultiplexer:
         else:
             return []
 
-    def _extract_oracle_labels(self, transition_id: str, episode_id: str, timestep: int) -> OracleLabels:
+    def _extract_oracle_labels(self, transition_id: str, trajectory_id: str, split_group_id: str, timestep: int) -> OracleLabels:
         """Extract ground truth state from simulator true state (evaluation only)."""
         true_state = self.cyborg.get_agent_state("True")
         host_compromise: dict[str, str] = {}
@@ -256,7 +257,8 @@ class ObservationMultiplexer:
 
         return OracleLabels(
             transition_id=transition_id,
-            episode_id=episode_id,
+            trajectory_id=trajectory_id,
+            split_group_id=split_group_id,
             t=timestep,
             host_compromise_status=host_compromise,
             attacker_present=attacker_present,

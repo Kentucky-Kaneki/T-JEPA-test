@@ -50,3 +50,19 @@ To determine what representation best supports action-conditioned latent world m
 * **Concept**: Condition predictor on Blue's action $a_t^{Blue}$:
   $$\mathbf{a}_t = E_{\text{action\_type}}(a_{\text{type}}) + E_{\text{target\_host}}(a_{\text{host}})$$
 * **Pros**: Allows predictor to simulate hypothetical outcomes of alternative defensive actions.
+
+---
+
+## 4. Dataset Taxonomy and Identifiers
+
+The dataset consists of **18 shards**, constructed by the Cartesian product of:
+* **2 Red Policies**: `bline`, `meander`
+* **3 Blue Policies**: `sleep`, `random`, `coverage`
+* **3 Collection Seeds**: `1001`, `2003`, `3005`
+
+Each shard contains 100 trajectories of length up to 50 steps, yielding a total of **1,800 trajectories** and **90,000 transitions**. 
+
+To strictly enforce data integrity, the following identification contracts are maintained:
+* **`trajectory_id`**: Globally unique across red_policy, blue_policy, collection_seed, and episode index (e.g., `traj_{red}_{blue}_{seed}_{ep}`).
+* **`transition_id`**: Globally unique within a trajectory and step index (e.g., `{trajectory_id}_t{t}`).
+* **`split_group_id`**: Consists of collection_seed plus episode index (e.g., `group_{seed}_{ep}`). This ID is strictly used to pair test cohorts, ensuring trajectories sharing the same initial state (seed/index) remain in the exact same deterministic split (Train, Val, or Holdout) regardless of policy.

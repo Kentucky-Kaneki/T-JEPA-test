@@ -65,7 +65,8 @@ class DatasetStorageManager:
             for t in transitions:
                 trans_rows.append({
                     "dataset_id": t.dataset_id,
-                    "episode_id": t.episode_id,
+                    "trajectory_id": t.trajectory_id,
+                    "split_group_id": t.split_group_id,
                     "transition_id": t.transition_id,
                     "seed": t.seed,
                     "step_index": t.step_index,
@@ -97,7 +98,8 @@ class DatasetStorageManager:
             for o in oracle_labels:
                 row = {
                     "transition_id": o.transition_id,
-                    "episode_id": o.episode_id,
+                    "trajectory_id": o.trajectory_id,
+                    "split_group_id": o.split_group_id,
                     "t": o.t,
                     "red_stage": o.red_stage,
                     "critical_server_compromised": o.critical_server_compromised,
@@ -118,7 +120,8 @@ class DatasetStorageManager:
                 for t in transitions:
                     line_data = {
                         "transition_id": t.transition_id,
-                        "episode_id": t.episode_id,
+                        "trajectory_id": t.trajectory_id,
+                        "split_group_id": t.split_group_id,
                         "step_index": t.step_index,
                         "host_features": t.host_features,
                         "next_host_features": t.next_host_features,
@@ -153,7 +156,7 @@ class DatasetStorageManager:
             manifest_data["action_vocabulary"] = SCENARIO1B_ACTION_TYPES
             manifest_data["host_vocabulary"] = SCENARIO1B_HOST_SLOTS
             manifest_data["num_transitions"] = len(transitions)
-            manifest_data["num_episodes"] = len(set(t.episode_id for t in transitions))
+            manifest_data["num_trajectories"] = len(set(t.trajectory_id for t in transitions))
 
             manifest_tmp = tmp_dir / "manifest_tmp.json"
             with open(manifest_tmp, "w") as f:

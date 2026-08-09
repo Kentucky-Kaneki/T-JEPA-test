@@ -16,7 +16,7 @@ import CybORG as cyborg_pkg
 
 RED_POLICIES = ["bline", "meander"]
 BLUE_POLICIES = ["sleep", "random", "coverage"]
-COLLECTION_SEEDS = [1001, 2003, 3001, 4001, 5003]
+COLLECTION_SEEDS = [1001, 2003, 3005]
 
 
 def get_scenario1b_path() -> str:

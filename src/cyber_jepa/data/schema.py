@@ -138,7 +138,8 @@ class ActionSpec:
 class OracleLabels:
     """Physically isolated simulator ground truth sidecar (Section 4.3)."""
     transition_id: str
-    episode_id: str
+    trajectory_id: str
+    split_group_id: str
     t: int
     host_compromise_status: dict[str, str]   # hostname -> 'clean', 'user', 'system'
     attacker_present: dict[str, bool]        # hostname -> bool
@@ -150,7 +151,8 @@ class OracleLabels:
 class Transition:
     """Single-step environment transition contract (Phase 2 canonical schema)."""
     dataset_id: str
-    episode_id: str
+    trajectory_id: str
+    split_group_id: str
     transition_id: str
     seed: int
     step_index: int

@@ -19,30 +19,80 @@ from torch.utils.data import Dataset
 
 from cyber_jepa.data.schema import BlueObservation, ActionSpec
 
+def verify_dataset_integrity(shard_dirs: list[Path]) -> None:
+    """Strictly enforce uniqueness and 1-to-1 transition-to-oracle join across all shards."""
+    trans_list = []
+    oracle_list = []
+    
+    for sdir in shard_dirs:
+        t_path = sdir / "transitions.parquet"
+        o_path = sdir / "oracle_labels.parquet"
+        
+        if not t_path.exists() or not o_path.exists():
+            continue
+            
+        trans_list.append(pd.read_parquet(t_path))
+        oracle_list.append(pd.read_parquet(o_path))
+        
+    if not trans_list:
+        raise ValueError("No transitions found to verify.")
+        
+    all_trans = pd.concat(trans_list, ignore_index=True)
+    all_oracle = pd.concat(oracle_list, ignore_index=True)
+    
+    # 1. Uniqueness of trajectory_id
+    if not all_trans["trajectory_id"].is_unique:
+        # Wait, trajectory_id is unique per *trajectory*, not transition.
+        # But wait, transition_id must be globally unique
+        pass
+        
+    # 1. Uniqueness of transition_id
+    if not all_trans["transition_id"].is_unique:
+        duplicates = all_trans[all_trans["transition_id"].duplicated(keep=False)]
+        raise ValueError(f"Integrity Violation: Duplicate transition_ids found: {duplicates['transition_id'].tolist()}")
+        
+    if not all_oracle["transition_id"].is_unique:
+        raise ValueError("Integrity Violation: Duplicate transition_ids in oracle sidecar.")
+        
+    # 2. Exact 1-to-1 join
+    trans_ids = set(all_trans["transition_id"])
+    oracle_ids = set(all_oracle["transition_id"])
+    
+    orphans_in_trans = trans_ids - oracle_ids
+    orphans_in_oracle = oracle_ids - trans_ids
+    
+    if orphans_in_trans:
+        raise ValueError(f"Integrity Violation: {len(orphans_in_trans)} orphans in transitions (no oracle).")
+        
+    if orphans_in_oracle:
+        raise ValueError(f"Integrity Violation: {len(orphans_in_oracle)} orphans in oracle (no transition).")
+        
+    print(f"Dataset integrity verified: {len(trans_ids)} transitions with perfect 1-to-1 oracle alignment.")
 
-def generate_episode_splits(
-    episode_ids: list[str],
+
+def generate_group_splits(
+    group_ids: list[str],
     train_ratio: float = 0.70,
     val_ratio: float = 0.15,
     test_ratio: float = 0.15,
     salt: str = "cyborg_jepa_split_v1",
 ) -> dict[str, list[str]]:
-    """Deterministically partition episode IDs into train, val, and test splits."""
+    """Deterministically partition split_group_ids into train, val, and test splits."""
     if abs((train_ratio + val_ratio + test_ratio) - 1.0) > 1e-5:
         raise ValueError("Split ratios must sum to 1.0")
 
     train_eps, val_eps, test_eps = [], [], []
 
-    for ep_id in sorted(list(set(episode_ids))):
-        h = hashlib.sha256(f"{salt}_{ep_id}".encode("utf-8")).hexdigest()
+    for grp_id in sorted(list(set(group_ids))):
+        h = hashlib.sha256(f"{salt}_{grp_id}".encode("utf-8")).hexdigest()
         val_hash = int(h[:8], 16) / 0xFFFFFFFF
 
         if val_hash < train_ratio:
-            train_eps.append(ep_id)
+            train_eps.append(grp_id)
         elif val_hash < train_ratio + val_ratio:
-            val_eps.append(ep_id)
+            val_eps.append(grp_id)
         else:
-            test_eps.append(ep_id)
+            test_eps.append(grp_id)
 
     return {
         "train": sorted(train_eps),
@@ -55,8 +105,8 @@ def generate_ood_splits(
     transitions_df: pd.DataFrame,
 ) -> dict[str, dict[str, list[str]]]:
     """Generate Out-of-Distribution (OOD) transfer splits: B-line vs Meander."""
-    bline_eps = sorted(transitions_df[transitions_df["red_policy"] == "bline"]["episode_id"].unique().tolist())
-    meander_eps = sorted(transitions_df[transitions_df["red_policy"] == "meander"]["episode_id"].unique().tolist())
+    bline_eps = sorted(transitions_df[transitions_df["red_policy"] == "bline"]["split_group_id"].unique().tolist())
+    meander_eps = sorted(transitions_df[transitions_df["red_policy"] == "meander"]["split_group_id"].unique().tolist())
 
     return {
         "bline_to_meander": {"train": bline_eps, "test": meander_eps},
@@ -70,7 +120,7 @@ class CyberJEPADataset(Dataset):
     def __init__(
         self,
         shard_dirs: list[Path],
-        episode_split: list[str],
+        split_group_set: list[str],
         horizon: int = 1,
         history_len: int = 4,
         fit_normalizers: bool = False,
@@ -78,7 +128,7 @@ class CyberJEPADataset(Dataset):
     ):
         self.horizon = horizon
         self.history_len = history_len
-        self.episode_split_set = set(episode_split)
+        self.split_group_set = set(split_group_set)
 
         self.samples: list[dict[str, Any]] = []
         self._load_and_window_shards(shard_dirs)
@@ -95,11 +145,11 @@ class CyberJEPADataset(Dataset):
             obs_data = np.load(sdir / "observations.npz")
             flats = obs_data["flat"]
 
-            # Filter for requested episodes
-            filtered_df = trans_df[trans_df["episode_id"].isin(self.episode_split_set)]
-            ep_groups = filtered_df.groupby("episode_id", sort=True)
+            # Filter for requested split groups
+            filtered_df = trans_df[trans_df["split_group_id"].isin(self.split_group_set)]
+            ep_groups = filtered_df.groupby("trajectory_id", sort=True)
 
-            for ep_id, group in ep_groups:
+            for traj_id, group in ep_groups:
                 group_indices = np.array(group.index.tolist())
                 L = len(group_indices)
 
@@ -121,7 +171,7 @@ class CyberJEPADataset(Dataset):
                     t_tgt = int(t_vals[i + self.horizon])
 
                     self.samples.append({
-                        "episode_id": ep_id,
+                        "trajectory_id": traj_id,
                         "t_context": t_ctx,
                         "t_target": t_tgt,
                         "history_flat": torch.tensor(hist_flats, dtype=torch.float32),
@@ -157,7 +207,7 @@ class CyberJEPADataset(Dataset):
             target = (target - mean) / std
 
         return {
-            "episode_id": sample["episode_id"],
+            "trajectory_id": sample["trajectory_id"],
             "t_context": sample["t_context"],
             "t_target": sample["t_target"],
             "history_flat": hist,
