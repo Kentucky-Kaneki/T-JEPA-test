@@ -122,7 +122,9 @@ class LinearProbeEvaluator:
             latents_list.append(z.cpu().numpy())
 
             if "labels" in batch:
-                labels_list.extend(batch["labels"])
+                labels_list.extend(batch["labels"].numpy() if isinstance(batch["labels"], torch.Tensor) else batch["labels"])
+            elif "label" in batch:
+                labels_list.extend(batch["label"].numpy() if isinstance(batch["label"], torch.Tensor) else batch["label"])
             else:
                 labels_list.extend([0] * len(hist))
 

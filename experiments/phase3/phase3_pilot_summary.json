@@ -1,0 +1,46 @@
+[
+  {
+    "config_id": "flat_h4_control",
+    "seed": 1001,
+    "train_loss": 0.11365127032180347,
+    "val_loss": 0.10261128687659349,
+    "macro_f1": 0.8662054577063261,
+    "auroc": 0.9422189505872939,
+    "effective_rank": 5.900271148497292,
+    "is_collapsed": true,
+    "total_trainable_params": 548416
+  },
+  {
+    "config_id": "feature_legacy_mean",
+    "seed": 1001,
+    "train_loss": 0.08839262433264007,
+    "val_loss": 0.09797569419127665,
+    "macro_f1": 0.8510013361105329,
+    "auroc": 0.9343982716298322,
+    "effective_rank": 3.6704374463110945,
+    "is_collapsed": true,
+    "total_trainable_params": 522432
+  },
+  {
+    "config_id": "feature_query_pool",
+    "seed": 1001,
+    "train_loss": 0.12897315539123158,
+    "val_loss": 0.13046864210627973,
+    "macro_f1": 0.7859379267486551,
+    "auroc": 0.887001430584639,
+    "effective_rank": 2.004953193539854,
+    "is_collapsed": true,
+    "total_trainable_params": 539264
+  },
+  {
+    "config_id": "feature_token_predictor",
+    "seed": 1001,
+    "train_loss": 0.06646350087820335,
+    "val_loss": 0.07198290744666717,
+    "macro_f1": 0.8577769386229503,
+    "auroc": 0.9360167979036516,
+    "effective_rank": 4.309085860559069,
+    "is_collapsed": true,
+    "total_trainable_params": 522432
+  }
+]

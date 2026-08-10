@@ -41,6 +41,7 @@ where = ["src"]
 minversion = "7.0"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+pythonpath = ["src"]
 
 [tool.ruff]
 line-length = 100

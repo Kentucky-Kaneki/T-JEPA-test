@@ -148,10 +148,13 @@ class CyberJEPADataset(Dataset[dict[str, Any]]):
         """Construct sliding windows over valid episodes without boundary crossing."""
         for sdir in shard_dirs:
             trans_df = pd.read_parquet(sdir / "transitions.parquet")
+            oracle_df = pd.read_parquet(sdir / "oracle_labels.parquet") if (sdir / "oracle_labels.parquet").exists() else None
+            if oracle_df is not None:
+                trans_df = pd.merge(trans_df, oracle_df[["transition_id", "critical_server_compromised"]], on="transition_id", how="left")
+
             obs_data = np.load(sdir / "observations.npz")
             flats = obs_data["flat"]
 
-            # Filter for requested split groups or trajectory IDs
             filtered_df = trans_df
             if self.split_group_set is not None:
                 filtered_df = filtered_df[filtered_df["split_group_id"].isin(self.split_group_set)]
@@ -169,6 +172,8 @@ class CyberJEPADataset(Dataset[dict[str, Any]]):
 
                 act_vals = group[act_col].values
                 t_vals = group[t_col].values
+                trans_ids = group["transition_id"].values
+                labels = group["critical_server_compromised"].values if "critical_server_compromised" in group.columns else [0] * L
 
                 # Window requirement: history_len history steps + horizon future action/target steps
                 for i in range(self.history_len - 1, L - self.horizon):
@@ -180,14 +185,18 @@ class CyberJEPADataset(Dataset[dict[str, Any]]):
                     action_seq = act_vals[i : i + self.horizon].tolist()
                     t_ctx = int(t_vals[i])
                     t_tgt = int(t_vals[i + self.horizon])
+                    tid_ctx = str(trans_ids[i])
+                    tgt_label = int(labels[i + self.horizon]) if i + self.horizon < len(labels) else 0
 
                     self.samples.append({
                         "trajectory_id": traj_id,
+                        "transition_id": tid_ctx,
                         "t_context": t_ctx,
                         "t_target": t_tgt,
                         "history_flat": torch.tensor(hist_flats, dtype=torch.float32),
                         "action_seq": torch.tensor(action_seq, dtype=torch.long),
                         "target_flat": torch.tensor(target_flat, dtype=torch.float32),
+                        "label": tgt_label,
                         "horizon": self.horizon,
                     })
 
@@ -219,10 +228,12 @@ class CyberJEPADataset(Dataset[dict[str, Any]]):
 
         return {
             "trajectory_id": sample["trajectory_id"],
+            "transition_id": sample["transition_id"],
             "t_context": sample["t_context"],
             "t_target": sample["t_target"],
             "history_flat": hist,
             "action_seq": sample["action_seq"],
             "target_flat": target,
+            "label": sample["label"],
             "horizon": sample["horizon"],
         }
