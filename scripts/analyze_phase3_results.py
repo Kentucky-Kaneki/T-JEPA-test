@@ -35,7 +35,7 @@ def bootstrap_paired_difference(
 
     alpha = 1.0 - ci_level
     ci_lower = float(np.percentile(boot_diffs, 100 * (alpha / 2.0)))
-    ci_upper = float(np.percentile(boot_diffs, 100 * (100 - alpha / 2.0)))
+    ci_upper = float(np.percentile(boot_diffs, 100 * (1.0 - alpha / 2.0)))
 
     # Two-sided null hypothesis test (mean_diff == 0)
     p_val = float(np.mean(np.abs(boot_diffs - np.mean(boot_diffs)) >= np.abs(mean_diff)))
