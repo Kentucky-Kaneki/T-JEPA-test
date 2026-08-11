@@ -1,0 +1,64 @@
+# Python virtual environments
+/.venv/
+/.venv*/
+/venv/
+/env/
+/ENV/
+
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.so
+
+# Generated trajectory datasets & caches (Section 3.2 & 4.4)
+data/*.pt
+data/*.parquet
+data/*.npz
+data/*.jsonl*
+dataset/
+datasets/
+shards/
+*.parquet
+*.npz
+*.jsonl.zst
+
+# Model checkpoints & saved states
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.bin
+
+# Logs, metrics, and execution outputs
+logs/
+*.log
+*.jsonl
+wandb/
+tensorboard/
+runs/
+sweep_manifest.json
+
+# Generated reports & plots
+plots/
+!reports/
+!reports/*
+!experiments/phase3/phase3_cohort.parquet
+*.jpg
+*.jpeg
+*.svg
+*.pdf
+
+# IDE & System metadata
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

@@ -1,0 +1,10 @@
+probe_targets:
+  - "host_compromise"
+  - "attacker_presence"
+  - "future_compromise_t4"
+  - "critical_server_risk"
+regularization: L2
+C_values: [0.01, 0.1, 1.0, 10.0]
+primary_metric: macro_f1
+bootstrap_iterations: 1000
+bootstrap_ci: 0.95

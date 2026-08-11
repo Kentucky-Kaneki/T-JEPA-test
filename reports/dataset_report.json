@@ -1,0 +1,66 @@
+{
+  "total_transitions": 90000,
+  "total_episodes": 1800,
+  "num_shards": 18,
+  "zero_change_fraction": 0.42294444444444446,
+  "policy_coverage": {
+    "bline vs coverage": 15000,
+    "bline vs random": 15000,
+    "bline vs sleep": 15000,
+    "meander vs coverage": 15000,
+    "meander vs random": 15000,
+    "meander vs sleep": 15000
+  },
+  "action_frequency": {
+    "Remove": 12192,
+    "Sleep": 35552,
+    "Monitor": 5462,
+    "Misinform": 12254,
+    "Restore": 12294,
+    "Analyse": 12246
+  },
+  "host_target_frequency": {
+    "Enterprise0": 3102,
+    "NONE": 41014,
+    "Op_Server0": 3134,
+    "Enterprise_router": 2924,
+    "User4": 3094,
+    "Operational_router": 3026,
+    "Enterprise2": 3172,
+    "User0": 2958,
+    "Op_Host2": 3064,
+    "Defender": 3014,
+    "Op_Host0": 3102,
+    "User2": 3136,
+    "User3": 3142,
+    "User_router": 2958,
+    "Enterprise1": 3026,
+    "Op_Host1": 3054,
+    "User1": 3080
+  },
+  "subnet_target_frequency": {
+    "NONE": 90000
+  },
+  "invalid_action_parameter_rate": 0.0,
+  "episode_length_mean": 50.0,
+  "oracle_stage_prevalence": {
+    "access": 48442,
+    "impact": 41558
+  },
+  "horizon_change_rates": {
+    "1": 0.5831292517006803,
+    "2": 0.6614351851851852,
+    "4": 0.717415458937198,
+    "8": 0.8002248677248677,
+    "16": 0.8857843137254902
+  },
+  "persistence_baseline_mse": {
+    "1": 0.024535147389914427,
+    "2": 0.03110487908280144,
+    "4": 0.038799935051550466,
+    "8": 0.055494252492984134,
+    "16": 0.08207956427604787
+  },
+  "acceptance_gates_passed": true,
+  "gate_failures": []
+}

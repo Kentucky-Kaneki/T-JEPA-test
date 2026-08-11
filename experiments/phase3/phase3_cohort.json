@@ -1,0 +1,64 @@
+{
+  "cohort_generation_config": {
+    "scenario": "Scenario1b",
+    "horizon": 8,
+    "history_len": 4,
+    "cohort_seed": 4201,
+    "split_seed": 42,
+    "holdout_type": "unseen_split_group_holdout"
+  },
+  "num_split_groups": 44,
+  "num_trajectories": 264,
+  "num_transitions": 2000,
+  "class_prevalence": 0.604,
+  "prevalence_by_red_policy": {
+    "bline": {
+      "total": 1015,
+      "positive": 895,
+      "prevalence": 0.8817733990147784
+    },
+    "meander": {
+      "total": 985,
+      "positive": 313,
+      "prevalence": 0.3177664974619289
+    }
+  },
+  "prevalence_by_blue_policy": {
+    "coverage": {
+      "total": 646,
+      "positive": 386,
+      "prevalence": 0.5975232198142415
+    },
+    "random": {
+      "total": 686,
+      "positive": 377,
+      "prevalence": 0.5495626822157434
+    },
+    "sleep": {
+      "total": 668,
+      "positive": 445,
+      "prevalence": 0.6661676646706587
+    }
+  },
+  "dataset_manifest_hashes": {
+    "shard_bline_coverage_1001": "ea6abf76012ecfbd228c948fa16d92aa329dc769620678233e253c1798553fe5",
+    "shard_bline_coverage_2003": "43c40d39ba51ecec7f005460f29c2dda0c2b8abf3d99bcc1ecaafc56ff16d5c6",
+    "shard_bline_coverage_3005": "7a71feb152f6d78c77e96b76a9b427f1f3a381f399e3d1d075b54f576787f5c3",
+    "shard_bline_random_1001": "dc3d28716d274201b24be89cfa947f1be1ab731e7b0fcaf3481448c3cded8919",
+    "shard_bline_random_2003": "df71d27917cd2142cd46ad4864f6b04d4ec9bf93f901d609eb58687955382a42",
+    "shard_bline_random_3005": "4f3516d7dfa689c95f0ba9aff951b8343e0bbf59f60577278ce9feb40f022d41",
+    "shard_bline_sleep_1001": "c3a116c88026867f59ce04b234f7d5141664994779fb70a91821f8895d59ed2e",
+    "shard_bline_sleep_2003": "5ec4ae0e36945bce69e70b4a7cffa7297b41867ff498e4b0c5921a5052c5af00",
+    "shard_bline_sleep_3005": "ce06d4ef89e8131bc1cc5840353dda98919c02cfef1370a2e4e1c76ad03df557",
+    "shard_meander_coverage_1001": "f10b1991dcb4347f9f69be87df7866f2550f02fa9d1ddb4f839c9c3e773e8294",
+    "shard_meander_coverage_2003": "c181f326ca3442d100f9730787d903f5ee94c1a7bf510df8feeb97a4ac7e218a",
+    "shard_meander_coverage_3005": "d3e83c85add89eca0e68410aa748df0164db5c9ae3a12f04199c4507ca75cb58",
+    "shard_meander_random_1001": "50ae9f30016a531e8e8d8a6a19c82241aff589cffeb88a28e2aead011971ec9c",
+    "shard_meander_random_2003": "d4e75bd8299651a44f4f7dd0866a77fd54312924b1ab874ce074adb89c5e878a",
+    "shard_meander_random_3005": "707bb36648c6e84db2fa3b01f7f3cf131dd21a4cba3ea17af713de0769fe950e",
+    "shard_meander_sleep_1001": "3e4787d5572f87e380e485da9f85438ab583f94e33b404881dd79cb51a02c0c1",
+    "shard_meander_sleep_2003": "eeec105c45dc8143200120a0efea44525f80e16fa18c9000326bb1bdee6abd7c",
+    "shard_meander_sleep_3005": "d8f7daf2d8f1b997f78e6bc57a2daea53c645ec0ee6eaab3bb7a7eb01bf55789"
+  },
+  "cohort_sha256": "26ad6fd6ffbd43422c3d84bf3d8df139f77d943390ddce641f8100421a33568b"
+}

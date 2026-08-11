@@ -1,0 +1,10 @@
+episodes_per_shard: 100
+max_steps_per_episode: 50
+red_policies: ["bline", "meander"]
+blue_policies: ["sleep", "random", "coverage"]
+seeds: [1001, 2003, 3001, 4001, 5003]
+shards_dir: data/shards
+history_len: 4
+train_ratio: 0.70
+val_ratio: 0.15
+test_ratio: 0.15
