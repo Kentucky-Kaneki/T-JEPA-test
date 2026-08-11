@@ -47,11 +47,9 @@ sweep_manifest.json
 
 # Generated reports & plots
 plots/
-reports/
-dataset_report.json
-dataset_report.md
-final_selection_report.json
-*.png
+!reports/
+!reports/*
+!experiments/phase3/phase3_cohort.parquet
 *.jpg
 *.jpeg
 *.svg

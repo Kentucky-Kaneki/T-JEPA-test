@@ -1,0 +1,102 @@
+{
+  "winner_selected": true,
+  "selected_representation": "flat",
+  "winning_mean_ood_f1": 0.6860791388059575,
+  "candidate_rankings": {
+    "flat": 0.6860791388059575
+  },
+  "num_survivors": 2,
+  "rejections": [
+    {
+      "run_id": "feature_k1",
+      "rep": "feature",
+      "reason": "Collapsed latent space (std < 0.01 or eff_rank < 10%)"
+    },
+    {
+      "run_id": "host_k1",
+      "rep": "host",
+      "reason": "Collapsed latent space (std < 0.01 or eff_rank < 10%)"
+    },
+    {
+      "run_id": "hierarchical_k1",
+      "rep": "hierarchical",
+      "reason": "Collapsed latent space (std < 0.01 or eff_rank < 10%)"
+    },
+    {
+      "run_id": "flat_k2",
+      "rep": "flat",
+      "reason": "Collapsed latent space (std < 0.01 or eff_rank < 10%)"
+    },
+    {
+      "run_id": "feature_k2",
+      "rep": "feature",
+      "reason": "Collapsed latent space (std < 0.01 or eff_rank < 10%)"
+    },
+    {
+      "run_id": "host_k2",
+      "rep": "host",
+      "reason": "Collapsed latent space (std < 0.01 or eff_rank < 10%)"
+    },
+    {
+      "run_id": "hierarchical_k2",
+      "rep": "hierarchical",
+      "reason": "Collapsed latent space (std < 0.01 or eff_rank < 10%)"
+    },
+    {
+      "run_id": "flat_k4",
+      "rep": "flat",
+      "reason": "Collapsed latent space (std < 0.01 or eff_rank < 10%)"
+    },
+    {
+      "run_id": "feature_k4",
+      "rep": "feature",
+      "reason": "Collapsed latent space (std < 0.01 or eff_rank < 10%)"
+    },
+    {
+      "run_id": "host_k4",
+      "rep": "host",
+      "reason": "Collapsed latent space (std < 0.01 or eff_rank < 10%)"
+    },
+    {
+      "run_id": "hierarchical_k4",
+      "rep": "hierarchical",
+      "reason": "Collapsed latent space (std < 0.01 or eff_rank < 10%)"
+    },
+    {
+      "run_id": "feature_k8",
+      "rep": "feature",
+      "reason": "Collapsed latent space (std < 0.01 or eff_rank < 10%)"
+    },
+    {
+      "run_id": "host_k8",
+      "rep": "host",
+      "reason": "Collapsed latent space (std < 0.01 or eff_rank < 10%)"
+    },
+    {
+      "run_id": "hierarchical_k8",
+      "rep": "hierarchical",
+      "reason": "Collapsed latent space (std < 0.01 or eff_rank < 10%)"
+    },
+    {
+      "run_id": "flat_k16",
+      "rep": "flat",
+      "reason": "Collapsed latent space (std < 0.01 or eff_rank < 10%)"
+    },
+    {
+      "run_id": "feature_k16",
+      "rep": "feature",
+      "reason": "Collapsed latent space (std < 0.01 or eff_rank < 10%)"
+    },
+    {
+      "run_id": "host_k16",
+      "rep": "host",
+      "reason": "Collapsed latent space (std < 0.01 or eff_rank < 10%)"
+    },
+    {
+      "run_id": "hierarchical_k16",
+      "rep": "hierarchical",
+      "reason": "Collapsed latent space (std < 0.01 or eff_rank < 10%)"
+    }
+  ],
+  "conclusion": "Validated representation 'flat' selected according to preregistered Section 13 rules."
+}
