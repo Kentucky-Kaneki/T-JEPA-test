@@ -24,6 +24,7 @@ data/*.npz
 data/*.jsonl*
 dataset/
 datasets/
+data/shards/
 shards/
 *.parquet
 *.npz

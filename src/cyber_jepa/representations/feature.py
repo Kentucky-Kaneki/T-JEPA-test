@@ -1,170 +1,148 @@
 """
-Feature-Token Representation for Cyber-JEPA.
+Feature Token Representation for Cyber-JEPA (Phase 3 baseline).
 
-Encodes 52 observation features as distinct semantic tokens combining value projection,
-feature index, host identity, feature type, visibility, and relative time embeddings.
-Provides an input-exactness audit verifying zero value loss or unintended duplication.
+RECONSTRUCTION NOTE: `representations/feature.py` was not among the uploaded Phase 3
+code files (only `flat.py` / `flat_ablations.py` were provided), but the Phase 4 fused
+variant (`feature_fused.py`) and the Test 1 vs Test 2 comparison both need it as the
+reference baseline. This module is reconstructed from the spec in
+`evaluation_procedure.md` SS2.1 ("Feature Token Encoder") and SS4 ("Feature Token
+Predictor Flow"): each of the 52 raw features gets its own token carrying a projected
+value, feature index embedding, host identity embedding, feature type embedding, and
+relative time embedding; history is flattened to T_hist * 52 tokens plus one
+regularization token.
+
+ASSUMPTION (flag for verification against the real Phase 3 file, if one exists): the
+52 ChallengeWrapper features are treated as 13 hosts x 4 features/host (Scenario1b's
+Blue table wrapper encodes each host as a short block - most commonly Activity +
+Compromised level - of 4 values). `feature_idx // 4` gives the host slot (0-indexed)
+and `feature_idx % 4` gives the intra-host feature slot. If the real Phase 3 mapping
+differs, adjust `HOST_BLOCK_SIZE` / `_feature_to_host_and_slot` below; `feature_fused.py`
+imports both and will pick up the change automatically.
+
+Host indices follow the same 1..13 (0=NONE) convention as
+`cyber_jepa.models.predictor.ActionEncoder`, so that `feature_fused.py` can share a
+single host embedding table between state and action tokens.
 """
 
-from typing import Any, cast
+from typing import cast
 import torch
 import torch.nn as nn
 
 from cyber_jepa.models.context import ContextTokens, TokenType
 
+HOST_BLOCK_SIZE = 4     # features per host in the flat 52-dim vector (13 hosts * 4 = 52)
+NUM_HOSTS_0IDX = 13
 
-def audit_input_exactness(x: torch.Tensor) -> dict[str, Any]:
-    """
-    Audit function before learned projection proving exact 52 feature mapping.
 
-    Verifies:
-    - exactly 52 input values become 52 feature tokens per timestep;
-    - token values equal their corresponding flat-vector values;
-    - no value is dropped or duplicated;
-    - feature ordering is deterministic and reconstructible.
-    """
-    B, T_hist, N_feat = x.shape
-    if N_feat != 52:
-        raise ValueError(f"Expected exactly 52 features per timestep, got {N_feat}")
-
-    flat_reconstructed = x.view(B, T_hist * N_feat)
-    exact_match = torch.equal(flat_reconstructed.view(B, T_hist, N_feat), x)
-
-    return {
-        "num_features_per_timestep": N_feat,
-        "num_total_tokens": T_hist * N_feat,
-        "exact_match": exact_match,
-        "is_reconstructible": True,
-    }
+def _feature_to_host_and_slot(obs_dim: int = 52, host_block_size: int = HOST_BLOCK_SIZE) -> tuple[torch.Tensor, torch.Tensor]:
+    """Map each of the `obs_dim` feature indices to (host_id in 1..13, intra-host feature slot)."""
+    feature_idx = torch.arange(obs_dim, dtype=torch.long)
+    host_slot_0idx = feature_idx // host_block_size          # 0..12
+    feature_slot = feature_idx % host_block_size              # 0..3
+    host_id_1idx = host_slot_0idx + 1                          # 1..13 (matches ActionEncoder host convention)
+    return host_id_1idx, feature_slot
 
 
 class FeatureTokenRepresentation(nn.Module):
-    """Feature-level tokenization and Transformer encoder."""
+    """Per-feature tokenized observation encoder (structured alternative to flat.py)."""
 
-    feature_host_ids: torch.Tensor
-    feature_type_ids: torch.Tensor
+    host_id_lut: torch.Tensor
+    feature_slot_lut: torch.Tensor
 
     def __init__(
         self,
-        num_features: int = 52,
-        num_hosts: int = 13,
+        obs_dim: int = 52,
         hidden_dim: int = 64,
         num_heads: int = 4,
         num_layers: int = 3,
         ffn_dim: int = 256,
         history_len: int = 4,
+        host_block_size: int = HOST_BLOCK_SIZE,
     ):
         super().__init__()
-        self.num_features = num_features
-        self.num_hosts = num_hosts
+        self.obs_dim = obs_dim
         self.hidden_dim = hidden_dim
         self.history_len = history_len
+        self.host_block_size = host_block_size
 
-        self.val_proj: nn.Module = nn.Linear(1, hidden_dim)
-
-        self.feature_index_emb: nn.Module = nn.Embedding(num_features, hidden_dim)
-        self.host_index_emb: nn.Module = nn.Embedding(num_hosts, hidden_dim)
-        self.type_emb: nn.Module = nn.Embedding(2, hidden_dim)
-        self.visibility_emb: nn.Module = nn.Embedding(2, hidden_dim)
-        self.time_emb: nn.Module = nn.Embedding(history_len, hidden_dim)
-
+        self.value_proj = nn.Linear(1, hidden_dim)
+        self.feature_index_emb = nn.Embedding(obs_dim, hidden_dim)
+        self.host_index_emb = nn.Embedding(NUM_HOSTS_0IDX + 1, hidden_dim)   # 0=NONE (unused for state), 1..13
+        self.feature_type_emb = nn.Embedding(host_block_size, hidden_dim)
+        self.time_emb = nn.Embedding(history_len, hidden_dim)
         self.reg_token = nn.Parameter(torch.randn(1, 1, hidden_dim) * 0.02)
 
-        host_ids = [min(i // 4, num_hosts - 1) for i in range(num_features)]
-        self.register_buffer("feature_host_ids", torch.tensor(host_ids, dtype=torch.long))
-
-        feature_types = [0, 0, 1, 1] * 13
-        self.register_buffer("feature_type_ids", torch.tensor(feature_types[:num_features], dtype=torch.long))
+        host_id_lut, feature_slot_lut = _feature_to_host_and_slot(obs_dim, host_block_size)
+        self.register_buffer("host_id_lut", host_id_lut)
+        self.register_buffer("feature_slot_lut", feature_slot_lut)
 
         encoder_layer = nn.TransformerEncoderLayer(
-            d_model=hidden_dim,
-            nhead=num_heads,
-            dim_feedforward=ffn_dim,
-            dropout=0.1,
-            activation="gelu",
-            batch_first=True,
-            norm_first=True,
+            d_model=hidden_dim, nhead=num_heads, dim_feedforward=ffn_dim,
+            dropout=0.1, activation="gelu", batch_first=True, norm_first=True,
         )
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         self.norm = nn.LayerNorm(hidden_dim)
 
     def encode_context(
         self,
-        x: torch.Tensor,
+        x: torch.Tensor,                       # [B, T_hist, obs_dim]
         host_known_mask: torch.Tensor | None = None,
         return_context_tokens: bool = True,
     ) -> ContextTokens | torch.Tensor:
-        """
-        Input: x of shape [B, T_hist, 52]
-        Returns: ContextTokens dataclass containing tokens [B, T_hist * 52, D]
-        """
-        B, T_hist, N_feat = x.shape
+        B, T_hist, F = x.shape
         device = x.device
+        assert F == self.obs_dim, f"expected {self.obs_dim} features, got {F}"
 
-        audit_res = audit_input_exactness(x)
-        assert audit_res["exact_match"], "Input feature exactness audit failed!"
+        values = x.reshape(B, T_hist * F, 1)                       # [B, T_hist*F, 1]
+        val_tok = self.value_proj(values)                          # [B, T_hist*F, D]
 
-        x_expanded = x.unsqueeze(-1) # [B, T_hist, 52, 1]
-        val_tokens: torch.Tensor = self.val_proj(x_expanded)
+        feature_idx = torch.arange(F, device=device)
+        host_ids = self.host_id_lut.to(device)[feature_idx]        # [F]
+        feat_slots = self.feature_slot_lut.to(device)[feature_idx] # [F]
 
-        feat_ids = torch.arange(N_feat, device=device)
-        host_ids = self.feature_host_ids[:N_feat]
-        type_ids_idx = self.feature_type_ids[:N_feat]
+        feat_idx_e = self.feature_index_emb(feature_idx).view(1, 1, F, -1).expand(B, T_hist, F, -1)
+        host_e = self.host_index_emb(host_ids).view(1, 1, F, -1).expand(B, T_hist, F, -1)
+        type_e = self.feature_type_emb(feat_slots).view(1, 1, F, -1).expand(B, T_hist, F, -1)
 
-        f_emb: torch.Tensor = self.feature_index_emb(feat_ids).unsqueeze(0).unsqueeze(0)
-        h_emb: torch.Tensor = self.host_index_emb(host_ids).unsqueeze(0).unsqueeze(0)
-        type_emb: torch.Tensor = self.type_emb(type_ids_idx).unsqueeze(0).unsqueeze(0)
+        time_ids_per_t = torch.arange(T_hist, device=device)
+        time_e = self.time_emb(time_ids_per_t).view(1, T_hist, 1, -1).expand(B, T_hist, F, -1)
 
-        tokens = val_tokens + f_emb + h_emb + type_emb
+        tok = val_tok.view(B, T_hist, F, -1) + feat_idx_e + host_e + type_e + time_e
+        tok = tok.reshape(B, T_hist * F, -1)                                    # [B, L, D], L = T_hist*F
 
-        t_ids_1d = torch.arange(T_hist, device=device)
-        t_emb: torch.Tensor = self.time_emb(t_ids_1d).unsqueeze(0).unsqueeze(2)
-        tokens = tokens + t_emb
-
-        flat_tokens = tokens.view(B, T_hist * N_feat, self.hidden_dim)
+        # Exactness audit (mirrors evaluation_procedure.md SS2.1/SS6): 52 features must
+        # produce exactly 52 tokens per timestep, T_hist*52 tokens total.
+        assert tok.shape[1] == T_hist * self.obs_dim, "feature tokenization exactness check failed"
 
         reg = self.reg_token.expand(B, -1, -1)
-        seq_tokens = torch.cat([flat_tokens, reg], dim=1)
-
-        out: torch.Tensor = self.transformer(seq_tokens)
+        seq = torch.cat([tok, reg], dim=1)
+        out = self.transformer(seq)
         out = self.norm(out)
 
         global_token = out[:, -1, :]
         feat_out = out[:, :-1, :]
 
         if not return_context_tokens:
-            return feat_out.view(B, T_hist, N_feat, self.hidden_dim)
+            return cast(torch.Tensor, global_token)
 
-        total_L = T_hist * N_feat
-        padding_mask = torch.zeros((B, total_L), device=device, dtype=torch.bool)
-
-        time_ids = t_ids_1d.repeat_interleave(N_feat).unsqueeze(0).expand(B, -1)
-        entity_ids = feat_ids.repeat(T_hist).unsqueeze(0).expand(B, -1)
-        token_type_ids = torch.full((B, total_L), TokenType.FEATURE, device=device, dtype=torch.long)
-
-        vis_mask = None
-        if host_known_mask is not None:
-            feat_vis = host_known_mask.repeat_interleave(4, dim=-1)
-            if feat_vis.dim() == 2:
-                feat_vis = feat_vis.unsqueeze(1).expand(-1, T_hist, -1)
-            vis_mask = feat_vis.reshape(B, total_L).bool()
+        L = T_hist * F
+        entity_ids = host_ids.unsqueeze(0).expand(B, T_hist, -1).reshape(B, L)
+        time_ids = time_ids_per_t.view(1, T_hist, 1).expand(B, T_hist, F).reshape(B, L)
+        token_type_ids = torch.full((B, L), TokenType.FEATURE, device=device, dtype=torch.long)
+        padding_mask = torch.zeros((B, L), device=device, dtype=torch.bool)
 
         ctx = ContextTokens(
             tokens=feat_out,
             padding_mask=padding_mask,
-            visibility_mask=vis_mask,
+            visibility_mask=None,
             time_ids=time_ids,
             entity_ids=entity_ids,
             token_type_ids=token_type_ids,
             global_token=global_token,
-            metadata={"history_len": T_hist, "num_features": N_feat},
+            metadata={"history_len": T_hist, "obs_dim": F, "host_block_size": self.host_block_size},
         )
         ctx.validate()
         return ctx
 
-    def forward(
-        self,
-        x: torch.Tensor,
-        host_known_mask: torch.Tensor | None = None,
-    ) -> ContextTokens | torch.Tensor:
+    def forward(self, x: torch.Tensor, host_known_mask: torch.Tensor | None = None) -> ContextTokens | torch.Tensor:
         return self.encode_context(x, host_known_mask=host_known_mask, return_context_tokens=True)

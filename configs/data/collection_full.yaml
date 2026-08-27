@@ -2,7 +2,9 @@ episodes_per_shard: 100
 max_steps_per_episode: 50
 red_policies: ["bline", "meander"]
 blue_policies: ["sleep", "random", "coverage"]
-seeds: [1001, 2003, 3001, 4001, 5003]
+# These are collection seeds, deliberately distinct from the five model-training
+# seeds. They reproduce the immutable 18-shard Phase 3 data contract.
+seeds: [1001, 2003, 3005]
 shards_dir: data/shards
 history_len: 4
 train_ratio: 0.70

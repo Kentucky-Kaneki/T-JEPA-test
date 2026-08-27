@@ -154,11 +154,17 @@ class Trainer:
             "val_loss": val_loss,
             "online_encoder": self.model.online_encoder.state_dict(),
             "target_encoder": self.model.target_encoder.state_dict(),
-            "action_encoder": self.model.action_encoder.state_dict(),
-            "predictor": self.model.predictor.state_dict(),
             "optimizer": self.optimizer.state_dict(),
             "scaler": self.scaler.state_dict(),
         }
+        # Test 1 models use the separate action encoder/predictor pathway;
+        # Phase 4 fused models instead expose a thin fused readout.  Keep one
+        # trainer so optimization and checkpoint semantics remain comparable.
+        if hasattr(self.model, "action_encoder"):
+            ckpt["action_encoder"] = self.model.action_encoder.state_dict()
+            ckpt["predictor"] = self.model.predictor.state_dict()
+        if hasattr(self.model, "readout"):
+            ckpt["readout"] = self.model.readout.state_dict()
         tmp_path = path.with_suffix(".tmp")
         torch.save(ckpt, tmp_path)
         tmp_path.replace(path)

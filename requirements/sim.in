@@ -1,5 +1,7 @@
-# Dependencies for CybORG trajectory collection & simulation environment
-git+https://github.com/cage-challenge/CybORG.git@dd586a3#egg=CybORG
+# Dependencies for CybORG trajectory collection & simulation environment.
+# Editable install is intentional: this CybORG revision imports its bundled
+# ``CybORG/version.txt``, which its regular wheel omits.
+-e git+https://github.com/cage-challenge/CybORG.git@dd586a3#egg=CybORG
 gym<0.26.0
 prettytable>=3.0.0
 numpy>=1.24.0,<2.0.0
