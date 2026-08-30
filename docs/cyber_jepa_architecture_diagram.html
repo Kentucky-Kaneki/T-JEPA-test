@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cyber-JEPA Architecture Diagram</title>
+<script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--background, #0f172a);
+    color: var(--foreground, #f8fafc);
+  }
+  .box-shadow-soft {
+    box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.35), 0 2px 6px -1px rgba(0, 0, 0, 0.2);
+  }
+  .glow-border {
+    box-shadow: 0 0 15px rgba(59, 130, 246, 0.25);
+  }
+</style>
+</head>
+<body class="p-4 md:p-8 flex flex-col items-center justify-center min-h-screen">
+
+<div class="w-full max-w-6xl bg-[var(--card,#1e293b)] border border-[var(--border,#334155)] rounded-2xl p-6 md:p-8 box-shadow-soft">
+  
+  <!-- Header -->
+  <div class="text-center mb-8 border-b border-[var(--border,#334155)] pb-6">
+    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-400 text-xs font-semibold uppercase tracking-wider mb-2">
+      Model Architecture Specification
+    </div>
+    <h1 class="text-2xl md:text-3xl font-bold text-[var(--foreground,#f8fafc)]">Cyber-JEPA Architecture</h1>
+    <p class="text-sm text-[var(--muted-foreground,#94a3b8)] mt-1">
+      Action-Conditioned Latent World Model with Modular Pre-LN Transformers and EMA Target Dynamics
+    </p>
+  </div>
+
+  <!-- SVG Diagram Canvas -->
+  <div class="w-full overflow-x-auto flex justify-center">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1020" class="w-full max-w-[1040px] h-auto font-sans select-none">
+      <defs>
+        <!-- Gradients -->
+        <linearGradient id="grad-input" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#f43f5e" stop-opacity="0.15"/>
+          <stop offset="100%" stop-color="#f43f5e" stop-opacity="0.25"/>
+        </linearGradient>
+        <linearGradient id="grad-attention" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.18"/>
+          <stop offset="100%" stop-color="#f59e0b" stop-opacity="0.28"/>
+        </linearGradient>
+        <linearGradient id="grad-ffn" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#0284c7" stop-opacity="0.18"/>
+          <stop offset="100%" stop-color="#0284c7" stop-opacity="0.28"/>
+        </linearGradient>
+        <linearGradient id="grad-norm" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#10b981" stop-opacity="0.18"/>
+          <stop offset="100%" stop-color="#10b981" stop-opacity="0.28"/>
+        </linearGradient>
+        <linearGradient id="grad-pred" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#6366f1" stop-opacity="0.15"/>
+          <stop offset="100%" stop-color="#6366f1" stop-opacity="0.25"/>
+        </linearGradient>
+
+        <!-- Arrow Markers -->
+        <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 1 L 8 5 L 0 9 z" fill="#60a5fa" />
+        </marker>
+        <marker id="arrow-ema" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 1 L 8 5 L 0 9 z" fill="#38bdf8" />
+        </marker>
+        <marker id="arrow-loss" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 1 L 8 5 L 0 9 z" fill="#f43f5e" />
+        </marker>
+      </defs>
+
+      <!-- Top Label: Environment Inputs -->
+      <rect x="180" y="20" width="720" height="42" rx="10" fill="#1e293b" stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="4,4"/>
+      <text x="540" y="46" font-size="14" font-weight="700" fill="#93c5fd" text-anchor="middle">
+        CybORG Environment Signals (Scenario1b • 13 Hosts • 52-dim Observations)
+      </text>
+
+      <!-- Input 1: Observation History -->
+      <g transform="translate(60, 95)">
+        <rect x="0" y="0" width="260" height="55" rx="8" fill="#1e293b" stroke="#64748b" stroke-width="1.2"/>
+        <text x="130" y="24" font-size="12" font-weight="700" fill="#f8fafc" text-anchor="middle">Observation History O₀:ₜ</text>
+        <text x="130" y="44" font-size="11" font-family="monospace" fill="#94a3b8" text-anchor="middle">[B, T_hist=4, obs_dim=52]</text>
+      </g>
+
+      <!-- Input 2: Action Sequence -->
+      <g transform="translate(410, 95)">
+        <rect x="0" y="0" width="260" height="55" rx="8" fill="#1e293b" stroke="#64748b" stroke-width="1.2"/>
+        <text x="130" y="24" font-size="12" font-weight="700" fill="#f8fafc" text-anchor="middle">Blue Action Sequence A₁:ₖ</text>
+        <text x="130" y="44" font-size="11" font-family="monospace" fill="#94a3b8" text-anchor="middle">[B, K=8] ∈ {0..65}</text>
+      </g>
+
+      <!-- Input 3: Target Observation -->
+      <g transform="translate(760, 95)">
+        <rect x="0" y="0" width="260" height="55" rx="8" fill="#1e293b" stroke="#64748b" stroke-width="1.2"/>
+        <text x="130" y="24" font-size="12" font-weight="700" fill="#f8fafc" text-anchor="middle">Target Observation Oₜ₊ₖ</text>
+        <text x="130" y="44" font-size="11" font-family="monospace" fill="#94a3b8" text-anchor="middle">[B, 1, obs_dim=52] (Single-Frame)</text>
+      </g>
+
+      <!-- Downward Arrows from Inputs -->
+      <path d="M 190 150 L 190 185" stroke="#60a5fa" stroke-width="2" marker-end="url(#arrow)"/>
+      <path d="M 540 150 L 540 185" stroke="#60a5fa" stroke-width="2" marker-end="url(#arrow)"/>
+      <path d="M 890 150 L 890 185" stroke="#60a5fa" stroke-width="2" marker-end="url(#arrow)"/>
+
+      <!-- ======================================================== -->
+      <!-- LEFT CONTAINER: Context Encoder (Flat & Feature)        -->
+      <!-- ======================================================== -->
+      <g transform="translate(50, 190)">
+        <rect x="0" y="0" width="280" height="420" rx="12" fill="#0f172a" stroke="#3b82f6" stroke-width="2"/>
+        <rect x="0" y="0" width="280" height="32" rx="12" fill="#1d4ed8" fill-opacity="0.3"/>
+        <text x="140" y="22" font-size="13" font-weight="700" fill="#93c5fd" text-anchor="middle">Context Encoder (Online)</text>
+        <text x="260" y="24" font-size="11" font-weight="600" fill="#60a5fa" text-anchor="end">3× Layers</text>
+
+        <!-- Input Projection / Tokenization -->
+        <g transform="translate(15, 45)">
+          <rect x="0" y="0" width="250" height="45" rx="6" fill="url(#grad-input)" stroke="#f43f5e" stroke-width="1.2"/>
+          <text x="125" y="18" font-size="11" font-weight="700" fill="#fda4af" text-anchor="middle">Input Projection + Pos/Time Emb</text>
+          <text x="125" y="35" font-size="9.5" font-family="monospace" fill="#e2e8f0" text-anchor="middle">MLP(52→256→64) + TimeEmb + [reg]</text>
+        </g>
+
+        <!-- Pre-LN Transformer Encoder Block (Nx = 3) -->
+        <g transform="translate(15, 105)">
+          <rect x="0" y="0" width="250" height="235" rx="8" fill="#1e293b" stroke="#475569" stroke-width="1.2"/>
+          <text x="240" y="125" font-size="13" font-weight="800" fill="#94a3b8" text-anchor="end">3×</text>
+
+          <!-- Pre-LN 1 -->
+          <rect x="20" y="15" width="210" height="26" rx="5" fill="url(#grad-norm)" stroke="#10b981" stroke-width="1"/>
+          <text x="125" y="32" font-size="10.5" font-weight="600" fill="#a7f3d0" text-anchor="middle">LayerNorm (Pre-LN)</text>
+
+          <!-- Multi-Head Attention -->
+          <rect x="20" y="50" width="210" height="34" rx="5" fill="url(#grad-attention)" stroke="#f59e0b" stroke-width="1"/>
+          <text x="125" y="68" font-size="11" font-weight="700" fill="#fde68a" text-anchor="middle">Multi-Head Self-Attention</text>
+          <text x="125" y="80" font-size="9" font-family="monospace" fill="#cbd5e1" text-anchor="middle">h=4, d=64, dropout=0.1</text>
+
+          <!-- Residual Connection 1 -->
+          <path d="M 10 10 L 10 95 L 20 95" fill="none" stroke="#64748b" stroke-width="1.5"/>
+          <circle cx="125" cy="95" r="7" fill="#1e293b" stroke="#60a5fa" stroke-width="1.5"/>
+          <text x="125" y="99" font-size="11" font-weight="700" fill="#60a5fa" text-anchor="middle">+</text>
+
+          <!-- Pre-LN 2 -->
+          <rect x="20" y="115" width="210" height="26" rx="5" fill="url(#grad-norm)" stroke="#10b981" stroke-width="1"/>
+          <text x="125" y="132" font-size="10.5" font-weight="600" fill="#a7f3d0" text-anchor="middle">LayerNorm (Pre-LN)</text>
+
+          <!-- Feed Forward MLP -->
+          <rect x="20" y="150" width="210" height="34" rx="5" fill="url(#grad-ffn)" stroke="#0284c7" stroke-width="1"/>
+          <text x="125" y="168" font-size="11" font-weight="700" fill="#bae6fd" text-anchor="middle">Feed-Forward Network (FFN)</text>
+          <text x="125" y="180" font-size="9" font-family="monospace" fill="#cbd5e1" text-anchor="middle">Linear(64→256) → GELU → Linear(256→64)</text>
+
+          <!-- Residual Connection 2 -->
+          <path d="M 10 110 L 10 195 L 20 195" fill="none" stroke="#64748b" stroke-width="1.5"/>
+          <circle cx="125" cy="195" r="7" fill="#1e293b" stroke="#60a5fa" stroke-width="1.5"/>
+          <text x="125" y="199" font-size="11" font-weight="700" fill="#60a5fa" text-anchor="middle">+</text>
+
+          <!-- Final LayerNorm -->
+          <rect x="20" y="210" width="210" height="20" rx="4" fill="url(#grad-norm)" stroke="#10b981" stroke-width="0.8"/>
+          <text x="125" y="224" font-size="9.5" font-weight="600" fill="#a7f3d0" text-anchor="middle">Final LayerNorm (d=64)</text>
+        </g>
+
+        <!-- Representation Summary Output -->
+        <g transform="translate(15, 355)">
+          <rect x="0" y="0" width="250" height="50" rx="6" fill="#1e293b" stroke="#3b82f6" stroke-width="1.2"/>
+          <text x="125" y="20" font-size="11" font-weight="700" fill="#93c5fd" text-anchor="middle">Context Representation (Cₜ)</text>
+          <text x="125" y="38" font-size="10" font-family="monospace" fill="#e2e8f0" text-anchor="middle">global_token: [B, 64] (Flat) / [B, 208, 64] (Feat)</text>
+        </g>
+      </g>
+
+      <!-- ======================================================== -->
+      <!-- MIDDLE CONTAINER: Action Encoder                         -->
+      <!-- ======================================================== -->
+      <g transform="translate(400, 190)">
+        <rect x="0" y="0" width="280" height="260" rx="12" fill="#0f172a" stroke="#0ea5e9" stroke-width="2"/>
+        <rect x="0" y="0" width="280" height="32" rx="12" fill="#0284c7" fill-opacity="0.3"/>
+        <text x="140" y="22" font-size="13" font-weight="700" fill="#7dd3fc" text-anchor="middle">Action Encoder (Semantic Table)</text>
+
+        <!-- Static Lookups -->
+        <g transform="translate(15, 45)">
+          <rect x="0" y="0" width="250" height="40" rx="6" fill="#1e293b" stroke="#64748b" stroke-width="1"/>
+          <text x="125" y="16" font-size="10" font-weight="700" fill="#cbd5e1" text-anchor="middle">Static Buffer Lookups (No Grad)</text>
+          <text x="125" y="30" font-size="9" font-family="monospace" fill="#94a3b8" text-anchor="middle">type_map[66] • host_map[66] • subnet_map[66]</text>
+        </g>
+
+        <!-- Embedding Summation -->
+        <g transform="translate(15, 95)">
+          <rect x="0" y="0" width="250" height="60" rx="6" fill="url(#grad-input)" stroke="#f43f5e" stroke-width="1"/>
+          <text x="125" y="18" font-size="10" font-weight="700" fill="#fda4af" text-anchor="middle">Learned Semantic Embeddings</text>
+          <text x="125" y="33" font-size="8.5" font-family="monospace" fill="#e2e8f0" text-anchor="middle">type_emb(16,64) + host_emb(14,64) + pos_emb(K,64)</text>
+          <text x="125" y="47" font-size="8.5" font-family="monospace" fill="#e2e8f0" text-anchor="middle">+ subnet_emb(4,64) + valid_emb(2,64) [Summed]</text>
+        </g>
+
+        <!-- Projection MLP -->
+        <g transform="translate(15, 165)">
+          <rect x="0" y="0" width="250" height="38" rx="6" fill="url(#grad-ffn)" stroke="#0284c7" stroke-width="1"/>
+          <text x="125" y="16" font-size="10" font-weight="700" fill="#bae6fd" text-anchor="middle">2-Layer MLP Projection</text>
+          <text x="125" y="30" font-size="9" font-family="monospace" fill="#e2e8f0" text-anchor="middle">Linear(64,64) → GELU → Linear(64,64)</text>
+        </g>
+
+        <!-- Action Tokens Output -->
+        <g transform="translate(15, 212)">
+          <rect x="0" y="0" width="250" height="36" rx="6" fill="#1e293b" stroke="#0ea5e9" stroke-width="1.2"/>
+          <text x="125" y="15" font-size="10.5" font-weight="700" fill="#7dd3fc" text-anchor="middle">Action Tokens E(A)</text>
+          <text x="125" y="28" font-size="9.5" font-family="monospace" fill="#e2e8f0" text-anchor="middle">shape: [B, K=8, D=64]</text>
+        </g>
+      </g>
+
+      <!-- ======================================================== -->
+      <!-- RIGHT CONTAINER: Target Encoder (Frozen EMA)             -->
+      <!-- ======================================================== -->
+      <g transform="translate(750, 190)">
+        <rect x="0" y="0" width="280" height="420" rx="12" fill="#0f172a" stroke="#10b981" stroke-width="2"/>
+        <rect x="0" y="0" width="280" height="32" rx="12" fill="#059669" fill-opacity="0.3"/>
+        <text x="140" y="22" font-size="13" font-weight="700" fill="#6ee7b7" text-anchor="middle">Target Encoder (EMA Fixed)</text>
+        <text x="260" y="24" font-size="11" font-weight="600" fill="#34d399" text-anchor="end">3× Layers</text>
+
+        <!-- Target Properties -->
+        <g transform="translate(15, 45)">
+          <rect x="0" y="0" width="250" height="45" rx="6" fill="#1e293b" stroke="#10b981" stroke-width="1"/>
+          <text x="125" y="18" font-size="10.5" font-weight="700" fill="#a7f3d0" text-anchor="middle">Neutral Prediction Target (T=1)</text>
+          <text x="125" y="34" font-size="9" font-family="monospace" fill="#cbd5e1" text-anchor="middle">Single Frame Oₜ₊ₖ (No Actions/History)</text>
+        </g>
+
+        <!-- Deepcopy Transformer Stack -->
+        <g transform="translate(15, 105)">
+          <rect x="0" y="0" width="250" height="235" rx="8" fill="#1e293b" stroke="#334155" stroke-width="1.2"/>
+          <text x="125" y="100" font-size="12" font-weight="700" fill="#64748b" text-anchor="middle">Identical Architecture to Online</text>
+          <text x="125" y="120" font-size="10.5" font-family="monospace" fill="#94a3b8" text-anchor="middle">requires_grad = False (.eval())</text>
+          <text x="125" y="145" font-size="10" font-family="monospace" fill="#6ee7b7" text-anchor="middle">θ_target ← m·θ_target + (1-m)·θ_online</text>
+          <text x="125" y="165" font-size="9" font-family="monospace" fill="#94a3b8" text-anchor="middle">m schedule: 0.996 → 1.000 (linear)</text>
+          <text x="240" y="225" font-size="13" font-weight="800" fill="#64748b" text-anchor="end">3×</text>
+        </g>
+
+        <!-- Target Latent Output -->
+        <g transform="translate(15, 355)">
+          <rect x="0" y="0" width="250" height="50" rx="6" fill="#1e293b" stroke="#10b981" stroke-width="1.2"/>
+          <text x="125" y="20" font-size="11" font-weight="700" fill="#6ee7b7" text-anchor="middle">Target Latent Vector (Z_target)</text>
+          <text x="125" y="38" font-size="10" font-family="monospace" fill="#e2e8f0" text-anchor="middle">z_target = global_token ∈ ℝ^[B, 64]</text>
+        </g>
+      </g>
+
+      <!-- EMA Dotted Loop (from Context Encoder to Target Encoder) -->
+      <path d="M 50 400 L 20 400 L 20 625 L 1040 625 L 1040 400 L 1030 400" fill="none" stroke="#38bdf8" stroke-width="2.5" stroke-dasharray="6,6" marker-end="url(#arrow-ema)"/>
+      <rect x="470" y="612" width="140" height="26" rx="5" fill="#0f172a" stroke="#38bdf8" stroke-width="1.2"/>
+      <text x="540" y="629" font-size="11" font-weight="700" fill="#38bdf8" text-anchor="middle">EMA Parameter Copy</text>
+
+      <!-- ======================================================== -->
+      <!-- BOTTOM CONTAINER: Latent Predictor                       -->
+      <!-- ======================================================== -->
+      <g transform="translate(200, 660)">
+        <rect x="0" y="0" width="480" height="300" rx="12" fill="#0f172a" stroke="#818cf8" stroke-width="2"/>
+        <rect x="0" y="0" width="480" height="32" rx="12" fill="#4f46e5" fill-opacity="0.3"/>
+        <text x="240" y="22" font-size="13" font-weight="700" fill="#c7d2fe" text-anchor="middle">Latent Predictor (Action-Conditioned Forward Dynamics)</text>
+        <text x="460" y="24" font-size="11" font-weight="600" fill="#a5b4fc" text-anchor="end">3× Layers</text>
+
+        <!-- Input Sequence Assembly -->
+        <g transform="translate(20, 45)">
+          <rect x="0" y="0" width="440" height="42" rx="6" fill="#1e293b" stroke="#6366f1" stroke-width="1"/>
+          <text x="220" y="18" font-size="10.5" font-weight="700" fill="#c7d2fe" text-anchor="middle">Sequence Assembly + Target Query Spec</text>
+          <text x="220" y="32" font-size="9" font-family="monospace" fill="#e2e8f0" text-anchor="middle">seq = concat([C_token, E(A)], dim=1) [B, 1+K, 64] + Causal Attention Mask</text>
+        </g>
+
+        <!-- Predictor Transformer Stack -->
+        <g transform="translate(20, 95)">
+          <rect x="0" y="0" width="440" height="135" rx="8" fill="#1e293b" stroke="#475569" stroke-width="1.2"/>
+          <text x="425" y="70" font-size="13" font-weight="800" fill="#94a3b8" text-anchor="end">3×</text>
+
+          <rect x="15" y="12" width="400" height="30" rx="5" fill="url(#grad-attention)" stroke="#f59e0b" stroke-width="1"/>
+          <text x="215" y="31" font-size="10.5" font-weight="700" fill="#fde68a" text-anchor="middle">Causal Self-Attention (Flat) / Cross-Attention Decoder (Feature)</text>
+
+          <rect x="15" y="52" width="400" height="24" rx="5" fill="url(#grad-norm)" stroke="#10b981" stroke-width="1"/>
+          <text x="215" y="68" font-size="10" font-weight="600" fill="#a7f3d0" text-anchor="middle">Pre-LN LayerNorm + Residual Skip (+)</text>
+
+          <rect x="15" y="85" width="400" height="30" rx="5" fill="url(#grad-ffn)" stroke="#0284c7" stroke-width="1"/>
+          <text x="215" y="104" font-size="10.5" font-weight="700" fill="#bae6fd" text-anchor="middle">Feed-Forward MLP (64→256→64) + Residual Skip (+)</text>
+        </g>
+
+        <!-- Output Latent -->
+        <g transform="translate(20, 240)">
+          <rect x="0" y="0" width="440" height="46" rx="6" fill="#1e293b" stroke="#818cf8" stroke-width="1.2"/>
+          <text x="220" y="18" font-size="11" font-weight="700" fill="#c7d2fe" text-anchor="middle">Predicted Future Latent (Ẑₜ₊ₖ)</text>
+          <text x="220" y="34" font-size="10" font-family="monospace" fill="#e2e8f0" text-anchor="middle">Ẑₜ₊ₖ = Linear(LayerNorm(out[:, 1:, :])) ∈ ℝ^[B, K, 64]</text>
+        </g>
+      </g>
+
+      <!-- Arrows to Predictor -->
+      <!-- From Context Encoder to Predictor -->
+      <path d="M 190 610 L 190 730 L 200 730" fill="none" stroke="#60a5fa" stroke-width="2" marker-end="url(#arrow)"/>
+      <!-- From Action Encoder to Predictor -->
+      <path d="M 540 450 L 540 660" fill="none" stroke="#0ea5e9" stroke-width="2" marker-end="url(#arrow)"/>
+
+      <!-- ======================================================== -->
+      <!-- LOSS COMPUTATION (Right side)                             -->
+      <!-- ======================================================== -->
+      <g transform="translate(740, 720)">
+        <!-- Circle for Latent Comparison -->
+        <ellipse cx="150" cy="90" rx="100" ry="70" fill="#1e293b" stroke="#f43f5e" stroke-width="2"/>
+        <text x="150" y="65" font-size="13" font-weight="800" fill="#fda4af" text-anchor="middle">JEPA Loss Function</text>
+        <text x="150" y="88" font-size="11" font-family="monospace" fill="#e2e8f0" text-anchor="middle">ℒ_JEPA = ‖ Ẑₜ₊ₖ - Zₜ₊ₖ^target ‖₁</text>
+        <text x="150" y="108" font-size="10" font-family="monospace" fill="#94a3b8" text-anchor="middle">(Smooth L1 / MSE Loss)</text>
+        <text x="150" y="132" font-size="10" font-weight="600" fill="#fb7185" text-anchor="middle">Gradients propagate to Online Only</text>
+      </g>
+
+      <!-- Arrow from Predictor to Loss -->
+      <path d="M 680 810 L 740 810" fill="none" stroke="#818cf8" stroke-width="2.5" marker-end="url(#arrow)"/>
+      <!-- Arrow from Target Encoder to Loss -->
+      <path d="M 890 610 L 890 720" fill="none" stroke="#10b981" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+    </svg>
+  </div>
+
+  <!-- Legend & Micro-Architecture Note -->
+  <div class="mt-8 grid grid-cols-2 md:grid-cols-4 gap-4 text-xs border-t border-[var(--border,#334155)] pt-6">
+    <div class="flex items-center gap-2">
+      <div class="w-4 h-4 rounded bg-amber-500/20 border border-amber-500"></div>
+      <span class="text-[var(--muted-foreground,#94a3b8)]">Multi-Head Attention (h=4)</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <div class="w-4 h-4 rounded bg-sky-500/20 border border-sky-500"></div>
+      <span class="text-[var(--muted-foreground,#94a3b8)]">Feed-Forward MLP (d_ffn=256)</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <div class="w-4 h-4 rounded bg-emerald-500/20 border border-emerald-500"></div>
+      <span class="text-[var(--muted-foreground,#94a3b8)]">LayerNorm (Pre-LN Scheme)</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <div class="w-4 h-4 rounded bg-rose-500/20 border border-rose-500"></div>
+      <span class="text-[var(--muted-foreground,#94a3b8)]">Embeddings & Loss Surface</span>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>
