@@ -44,6 +44,7 @@ class ActionEncoder(nn.Module):
         num_subnets: int = 4,               # 0=NONE, 1..3=subnets
         max_horizon: int = 16,
         hidden_dim: int = 64,
+        projection_depth: int = 2,
     ):
         super().__init__()
         self.num_action_types = num_action_types
@@ -58,11 +59,13 @@ class ActionEncoder(nn.Module):
         self.pos_emb = nn.Embedding(max_horizon, hidden_dim)
         self.valid_emb = nn.Embedding(2, hidden_dim)
 
-        self.proj = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.GELU(),
-            nn.Linear(hidden_dim, hidden_dim),
-        )
+        if projection_depth < 1:
+            raise ValueError("projection_depth must be at least one")
+        projection: list[nn.Module] = []
+        for _ in range(projection_depth - 1):
+            projection.extend([nn.Linear(hidden_dim, hidden_dim), nn.GELU()])
+        projection.append(nn.Linear(hidden_dim, hidden_dim))
+        self.proj = nn.Sequential(*projection)
 
         # Build 66-element Scenario1b action mapping lookup buffers
         type_ids, host_ids, subnet_ids = self._build_scenario1b_action_tables()
@@ -160,12 +163,17 @@ class LatentPredictor(nn.Module):
         num_layers: int = 3,
         ffn_dim: int = 256,
         max_horizon: int = 16,
+        action_projection_depth: int = 2,
     ):
         super().__init__()
         self.hidden_dim = hidden_dim
         self.max_horizon = max_horizon
 
-        self.action_encoder = ActionEncoder(hidden_dim=hidden_dim, max_horizon=max_horizon)
+        self.action_encoder = ActionEncoder(
+            hidden_dim=hidden_dim,
+            max_horizon=max_horizon,
+            projection_depth=action_projection_depth,
+        )
 
         # Target Granularity Embeddings
         self.granularity_emb = nn.Embedding(4, hidden_dim) # 0=feature, 1=host, 2=subnet, 3=network

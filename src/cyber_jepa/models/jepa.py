@@ -59,6 +59,9 @@ class CyberJEPA(nn.Module):
         aggregator_mode: str = "legacy_last_step_mean",
         ema_momentum_init: float = 0.996,
         ema_momentum_final: float = 1.000,
+        predictor_num_layers: int = 3,
+        predictor_ffn_dim: int = 256,
+        action_projection_depth: int = 2,
     ):
         super().__init__()
         self.hidden_dim = hidden_dim
@@ -89,7 +92,13 @@ class CyberJEPA(nn.Module):
         self.aggregator = self.aggregator_module
 
         # 4. Latent predictor g_phi with action encoder
-        self.predictor = LatentPredictor(hidden_dim=hidden_dim, max_horizon=max_horizon)
+        self.predictor = LatentPredictor(
+            hidden_dim=hidden_dim,
+            max_horizon=max_horizon,
+            num_layers=predictor_num_layers,
+            ffn_dim=predictor_ffn_dim,
+            action_projection_depth=action_projection_depth,
+        )
 
     @property
     def action_encoder(self) -> ActionEncoder:
