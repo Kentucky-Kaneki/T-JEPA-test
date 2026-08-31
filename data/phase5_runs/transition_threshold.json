@@ -1,0 +1,6 @@
+{
+  "distance": "rms_flat_observation_delta",
+  "threshold": 0.7796987295150757,
+  "calibration_split": "train",
+  "frozen_before_evaluation": true
+}
