@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from numbers import Real
+from statistics import mean, stdev
 from typing import Any
 
 
@@ -48,3 +50,37 @@ class Phase5Orchestrator:
                 "mean_persistence_improvement": sum(metric["prediction"].get("improvement_over_persistence", 0.0) for metric in metrics) / len(metrics),
             })
         return sorted(rankings, key=lambda row: row["validation_score"], reverse=True)
+
+    @staticmethod
+    def aggregate_across_seeds(run_rows: list[dict[str, Any]]) -> dict[str, dict[str, dict[str, float]]]:
+        """Return per-candidate mean/sample-std for every numeric result metric.
+
+        Per-seed records remain the source evidence. This summary never changes
+        candidate selection and includes standard-test/OOD values for reporting
+        only, after the validation-only selection rule has been applied.
+        """
+        def flatten(value: Any, prefix: str = "") -> dict[str, float]:
+            if isinstance(value, dict):
+                flattened: dict[str, float] = {}
+                for key, child in value.items():
+                    flattened.update(flatten(child, f"{prefix}.{key}" if prefix else str(key)))
+                return flattened
+            if isinstance(value, Real) and not isinstance(value, bool):
+                return {prefix: float(value)}
+            return {}
+
+        groups: dict[str, list[dict[str, Any]]] = {}
+        for row in run_rows:
+            groups.setdefault(row["run_id"].rsplit("_seed", 1)[0], []).append(row)
+        summary: dict[str, dict[str, dict[str, float]]] = {}
+        for name, rows in groups.items():
+            values: dict[str, list[float]] = {}
+            for row in rows:
+                for metric, value in flatten(row).items():
+                    if metric not in {"seed", "threshold", "action_weight"}:
+                        values.setdefault(metric, []).append(value)
+            summary[name] = {
+                metric: {"mean": mean(samples), "std": stdev(samples) if len(samples) > 1 else 0.0}
+                for metric, samples in sorted(values.items())
+            }
+        return summary

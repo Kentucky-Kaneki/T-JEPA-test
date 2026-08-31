@@ -98,6 +98,13 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     config = _load_config(args.config)
+    if args.dry_run:
+        print(
+            f"Validated Phase 5 config: stage={args.stage}, "
+            f"seeds={len(config['seeds'])}, shards_dir={args.shards_dir}. "
+            "No shards were collected and no model was trained."
+        )
+        return
     if args.stage == "stage3":
         args.output_dir.mkdir(parents=True, exist_ok=True)
         (args.output_dir / "stage3_one_factor_manifest.json").write_text(json.dumps(config["stage3"], indent=2), encoding="utf-8")
@@ -133,7 +140,12 @@ def main() -> None:
                 row = _run_one(name, _ratio(configured_ratio), seed, config, datasets, threshold, args.output_dir, device, action_weight)
                 rows.append(row)
                 (args.output_dir / f"{row['run_id']}.json").write_text(json.dumps(row, indent=2), encoding="utf-8")
-    payload = {"manifest": manifest, "runs": rows, "validation_selection": Phase5Orchestrator.rank_by_validation(rows) if args.stage == "stage1" else None}
+    payload = {
+        "manifest": manifest,
+        "runs": rows,
+        "aggregate_across_seeds": Phase5Orchestrator.aggregate_across_seeds(rows),
+        "validation_selection": Phase5Orchestrator.rank_by_validation(rows) if args.stage == "stage1" else None,
+    }
     (args.output_dir / f"{args.stage}_results.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 

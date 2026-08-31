@@ -47,19 +47,22 @@ reported but excluded from Stage 1 candidate selection.
 From the repository root:
 
 ```powershell
-python scripts/run_phase5.py --stage stage1 --dry-run
-python scripts/run_phase5.py --stage stage1
+python scripts/run_phase5_pipeline.py --stage stage1 --dry-run
+python scripts/run_phase5_pipeline.py --stage stage1
 ```
+
+The pipeline verifies completed shards by checksum and collects only missing
+Scenario1b shards from `configs/data/collection_full.yaml` before training.
 
 After reviewing `data/phase5_runs/stage1_results.json`, run Stage 2 only with
 the selected non-natural ratio, for example:
 
 ```powershell
-python scripts/run_phase5.py --stage stage2 --selected-ratio static50_dynamic50
+python scripts/run_phase5_pipeline.py --stage stage2 --selected-ratio static50_dynamic50
 ```
 
 Stage 3 writes its deliberate one-factor-at-a-time manifest:
 
 ```powershell
-python scripts/run_phase5.py --stage stage3
+python scripts/run_phase5_pipeline.py --stage stage3
 ```
