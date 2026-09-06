@@ -29,9 +29,15 @@ are sufficiently distinct. It does not claim counterfactual action causality.
 2. **Action-conditioned contrast:** run only the Stage 1 selected ratio and
    predefined `lambda_a` values. Verify action sensitivity and predictive
    separation alongside dispersion metrics.
-3. **Architecture ablations:** write a one-factor-at-a-time manifest. Select one
-   factor deliberately before launching any run; do not silently perform a
-   factorial grid.
+3. **Architecture ablations:** automatically run the configured reduced
+   one-factor-at-a-time sweep, never a factorial grid. Select the best completed
+   Stage 2 candidate using the existing validation-only ranking over all five
+   seeds, and freeze that choice for restarts. Reuse its three baseline records
+   for seeds 1001/2003/3005. Train six alternatives on those seeds (18 new fits):
+   latent dimension 32, history length 2/8, horizon 4/16, and `batch_center`.
+   Preserve baseline normalizers, transition threshold, ratio, and action
+   weight; rebuild windows for history/horizon changes. Skip completed matching
+   ablations and atomically persist per-ablation and overall progress.
 
 ## Metrics and decision constraints
 
@@ -61,8 +67,14 @@ the selected non-natural ratio, for example:
 python scripts/run_phase5_pipeline.py --stage stage2 --selected-ratio static50_dynamic50
 ```
 
-Stage 3 writes its deliberate one-factor-at-a-time manifest:
+Stage 3 selects its baseline and executes all reduced ablations automatically:
 
 ```powershell
 python scripts/run_phase5_pipeline.py --stage stage3
 ```
+
+It uses the existing shards and Stage 2 results in the default directories;
+no selection or skip-collection flags are needed. Add `--dry-run` to preview
+the selected baseline and pending/reused counts. Missing completed baseline
+results stop the run rather than retraining earlier stages. The naming scheme
+and restart behavior are documented in the README's Stage 3 section.

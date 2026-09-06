@@ -39,10 +39,10 @@ stage2:
   future_margin: 0.20
   latent_margin: 0.20
 stage3:
+  baseline_selection: validation_best
+  seeds: [1001, 2003, 3005]
   one_factor_at_a_time:
-    predictor_layers: [2, 3, 4]
-    action_projection_depth: [1, 2, 3]
-    latent_dim: [32, 64, 128]
-    history_len: [2, 4, 8]
-    horizon: [4, 8, 16]
-    target_normalization: [none, l2, batch_center]
+    latent_dim: [32]
+    history_len: [2, 8]
+    horizon: [4, 16]
+    target_normalization: [batch_center]

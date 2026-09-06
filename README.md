@@ -41,3 +41,58 @@ python scripts/run_phase5_pipeline.py --stage stage2 --selected-ratio static50_d
 ```
 
 Use `--skip-collection` only when the fixed 18 shards have already been audited.
+
+## Stage 3: reduced automatic ablations
+
+After Stage 2 completes, run:
+
+```bash
+python scripts/run_phase5_pipeline.py --stage stage3
+```
+
+No selection flags are required. The runner selects the completed Stage 2
+candidate with the best validation-only score using all five original seeds
+and the existing `Phase5Orchestrator.rank_by_validation` rule. Incomplete
+candidates are not eligible for automatic selection. It freezes that choice in
+`data/phase5_runs/stage3_one_factor_manifest.json` so reruns keep the same
+baseline. Optional `--selected-ratio` and `--selected-action-weight` flags can
+override the selection. Test/OOD metrics never affect selection.
+
+Stage 3 reuses existing shards, checking their checksums before new training;
+it does not collect data or rerun Stages 1/2. Keep the same core/loss settings,
+shards, and output directory used for Stage 2. Missing baseline results cause
+an error rather than automatic baseline retraining.
+
+The six alternatives are latent dimension 32, history lengths 2/8, horizons
+4/16, and `batch_center` normalization. Each changes only one baseline setting.
+The shared baseline remains dimension 64, history 4, horizon 8, normalization
+`none`. Only seeds 1001, 2003, and 3005 are used: at most **18 new fits**, plus
+three reused Stage 2 baseline records. Baseline values and duplicate values
+in the ablation list are not trained again.
+
+Completed matching ablations are skipped automatically. Progress is written
+atomically after every fit; if interrupted, rerunning the same command trains
+only missing results. An interrupted fit without a completed result restarts
+from scratch; this is run-level reuse, not epoch-level checkpoint resumption.
+An entirely completed sweep exits without loading shards or importing PyTorch.
+
+Outputs under `data/phase5_runs/` use names such as:
+
+```text
+stage3_static50_dynamic50_action0.05_latent_dim_32_seed1001.json
+stage3_static50_dynamic50_action0.05_latent_dim_32/results.json
+stage3_static50_dynamic50_action0.05_latent_dim_32/seed_1001/best.pt
+stage3_static50_dynamic50_action0.05_latent_dim_32/seed_1001/last.pt
+stage3_results.json
+stage3_one_factor_manifest.json
+```
+
+Each ablation summary includes its settings, per-seed metrics, aggregate
+mean/sample standard deviation, baseline reference, and completion status.
+The overall summary includes the three reused baseline records exactly once.
+Existing results with incompatible settings are rejected, not overwritten.
+The example ratio/weight in these names depends on the selected baseline.
+
+Add `--dry-run` to inspect automatic selection and pending/reused run counts
+without collecting data, loading shards, writing results, or training. This
+preview requires the completed Stage 2 results in the output directory.
