@@ -1,34 +1,267 @@
 {
-  "one_factor_at_a_time": {
-    "predictor_layers": [
-      2,
-      3,
-      4
+  "stage": "stage3",
+  "seeds": [
+    1001,
+    2003,
+    3005
+  ],
+  "selected_ratio": "static50_dynamic50",
+  "selected_action_weight": 0.0,
+  "baseline": {
+    "name": "static50_dynamic50_action0",
+    "core": {
+      "representation": "flat",
+      "hidden_dim": 64,
+      "history_len": 4,
+      "horizon": 8,
+      "state_encoder_layers": 3,
+      "state_encoder_ffn_dim": 256,
+      "predictor_layers": 3,
+      "predictor_ffn_dim": 256,
+      "action_projection_depth": 2,
+      "aggregator_mode": "legacy_last_step_mean",
+      "ema_momentum_init": 0.996,
+      "ema_momentum_final": 1.0,
+      "learning_rate": 0.001,
+      "weight_decay": 0.0001,
+      "batch_size": 64,
+      "max_epochs": 20,
+      "min_epochs": 10,
+      "patience": 5
+    },
+    "loss": {
+      "variance_weight": 1.0,
+      "covariance_weight": 0.04,
+      "variance_target_std": 1.0,
+      "action_weight": 0.0,
+      "target_normalization": "none"
+    }
+  },
+  "variants": {
+    "stage3_static50_dynamic50_action0_latent_dim_32": {
+      "factor": "latent_dim",
+      "value": 32,
+      "core": {
+        "representation": "flat",
+        "hidden_dim": 32,
+        "history_len": 4,
+        "horizon": 8,
+        "state_encoder_layers": 3,
+        "state_encoder_ffn_dim": 256,
+        "predictor_layers": 3,
+        "predictor_ffn_dim": 256,
+        "action_projection_depth": 2,
+        "aggregator_mode": "legacy_last_step_mean",
+        "ema_momentum_init": 0.996,
+        "ema_momentum_final": 1.0,
+        "learning_rate": 0.001,
+        "weight_decay": 0.0001,
+        "batch_size": 64,
+        "max_epochs": 20,
+        "min_epochs": 10,
+        "patience": 5
+      },
+      "loss": {
+        "variance_weight": 1.0,
+        "covariance_weight": 0.04,
+        "variance_target_std": 1.0,
+        "action_weight": 0.0,
+        "target_normalization": "none"
+      }
+    },
+    "stage3_static50_dynamic50_action0_history_len_2": {
+      "factor": "history_len",
+      "value": 2,
+      "core": {
+        "representation": "flat",
+        "hidden_dim": 64,
+        "history_len": 2,
+        "horizon": 8,
+        "state_encoder_layers": 3,
+        "state_encoder_ffn_dim": 256,
+        "predictor_layers": 3,
+        "predictor_ffn_dim": 256,
+        "action_projection_depth": 2,
+        "aggregator_mode": "legacy_last_step_mean",
+        "ema_momentum_init": 0.996,
+        "ema_momentum_final": 1.0,
+        "learning_rate": 0.001,
+        "weight_decay": 0.0001,
+        "batch_size": 64,
+        "max_epochs": 20,
+        "min_epochs": 10,
+        "patience": 5
+      },
+      "loss": {
+        "variance_weight": 1.0,
+        "covariance_weight": 0.04,
+        "variance_target_std": 1.0,
+        "action_weight": 0.0,
+        "target_normalization": "none"
+      }
+    },
+    "stage3_static50_dynamic50_action0_history_len_8": {
+      "factor": "history_len",
+      "value": 8,
+      "core": {
+        "representation": "flat",
+        "hidden_dim": 64,
+        "history_len": 8,
+        "horizon": 8,
+        "state_encoder_layers": 3,
+        "state_encoder_ffn_dim": 256,
+        "predictor_layers": 3,
+        "predictor_ffn_dim": 256,
+        "action_projection_depth": 2,
+        "aggregator_mode": "legacy_last_step_mean",
+        "ema_momentum_init": 0.996,
+        "ema_momentum_final": 1.0,
+        "learning_rate": 0.001,
+        "weight_decay": 0.0001,
+        "batch_size": 64,
+        "max_epochs": 20,
+        "min_epochs": 10,
+        "patience": 5
+      },
+      "loss": {
+        "variance_weight": 1.0,
+        "covariance_weight": 0.04,
+        "variance_target_std": 1.0,
+        "action_weight": 0.0,
+        "target_normalization": "none"
+      }
+    },
+    "stage3_static50_dynamic50_action0_horizon_4": {
+      "factor": "horizon",
+      "value": 4,
+      "core": {
+        "representation": "flat",
+        "hidden_dim": 64,
+        "history_len": 4,
+        "horizon": 4,
+        "state_encoder_layers": 3,
+        "state_encoder_ffn_dim": 256,
+        "predictor_layers": 3,
+        "predictor_ffn_dim": 256,
+        "action_projection_depth": 2,
+        "aggregator_mode": "legacy_last_step_mean",
+        "ema_momentum_init": 0.996,
+        "ema_momentum_final": 1.0,
+        "learning_rate": 0.001,
+        "weight_decay": 0.0001,
+        "batch_size": 64,
+        "max_epochs": 20,
+        "min_epochs": 10,
+        "patience": 5
+      },
+      "loss": {
+        "variance_weight": 1.0,
+        "covariance_weight": 0.04,
+        "variance_target_std": 1.0,
+        "action_weight": 0.0,
+        "target_normalization": "none"
+      }
+    },
+    "stage3_static50_dynamic50_action0_horizon_16": {
+      "factor": "horizon",
+      "value": 16,
+      "core": {
+        "representation": "flat",
+        "hidden_dim": 64,
+        "history_len": 4,
+        "horizon": 16,
+        "state_encoder_layers": 3,
+        "state_encoder_ffn_dim": 256,
+        "predictor_layers": 3,
+        "predictor_ffn_dim": 256,
+        "action_projection_depth": 2,
+        "aggregator_mode": "legacy_last_step_mean",
+        "ema_momentum_init": 0.996,
+        "ema_momentum_final": 1.0,
+        "learning_rate": 0.001,
+        "weight_decay": 0.0001,
+        "batch_size": 64,
+        "max_epochs": 20,
+        "min_epochs": 10,
+        "patience": 5
+      },
+      "loss": {
+        "variance_weight": 1.0,
+        "covariance_weight": 0.04,
+        "variance_target_std": 1.0,
+        "action_weight": 0.0,
+        "target_normalization": "none"
+      }
+    },
+    "stage3_static50_dynamic50_action0_target_normalization_batch_center": {
+      "factor": "target_normalization",
+      "value": "batch_center",
+      "core": {
+        "representation": "flat",
+        "hidden_dim": 64,
+        "history_len": 4,
+        "horizon": 8,
+        "state_encoder_layers": 3,
+        "state_encoder_ffn_dim": 256,
+        "predictor_layers": 3,
+        "predictor_ffn_dim": 256,
+        "action_projection_depth": 2,
+        "aggregator_mode": "legacy_last_step_mean",
+        "ema_momentum_init": 0.996,
+        "ema_momentum_final": 1.0,
+        "learning_rate": 0.001,
+        "weight_decay": 0.0001,
+        "batch_size": 64,
+        "max_epochs": 20,
+        "min_epochs": 10,
+        "patience": 5
+      },
+      "loss": {
+        "variance_weight": 1.0,
+        "covariance_weight": 0.04,
+        "variance_target_std": 1.0,
+        "action_weight": 0.0,
+        "target_normalization": "batch_center"
+      }
+    }
+  },
+  "baseline_runs_reused": 3,
+  "max_new_training_runs": 18,
+  "selection": {
+    "source": "stage2_validation",
+    "seeds": [
+      1001,
+      2003,
+      3005,
+      4007,
+      5009
     ],
-    "action_projection_depth": [
-      1,
-      2,
-      3
-    ],
-    "latent_dim": [
-      32,
-      64,
-      128
-    ],
-    "history_len": [
-      2,
-      4,
-      8
-    ],
-    "horizon": [
-      4,
-      8,
-      16
-    ],
-    "target_normalization": [
-      "none",
-      "l2",
-      "batch_center"
+    "ranking": [
+      {
+        "candidate": "static50_dynamic50_action0",
+        "validation_score": 0.5140329764726257,
+        "mean_validation_f1": 0.8809829351943332,
+        "mean_rank_fraction": 0.15707526803016664,
+        "mean_persistence_improvement": -0.114338583866666
+      },
+      {
+        "candidate": "static50_dynamic50_action0.01",
+        "validation_score": 0.5140329764726257,
+        "mean_validation_f1": 0.8809829351943332,
+        "mean_rank_fraction": 0.15707526803016664,
+        "mean_persistence_improvement": -0.114338583866666
+      },
+      {
+        "candidate": "static50_dynamic50_action0.05",
+        "validation_score": 0.5140329764726257,
+        "mean_validation_f1": 0.8809829351943332,
+        "mean_rank_fraction": 0.15707526803016664,
+        "mean_persistence_improvement": -0.114338583866666
+      }
     ]
-  }
+  },
+  "shards_dir": "data/shards",
+  "threshold": 0.7796987295150757,
+  "completed_ablation_runs": 18,
+  "pending_training_runs": 0
 }
